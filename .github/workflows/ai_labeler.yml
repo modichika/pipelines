@@ -1,0 +1,44 @@
+name: AI Issue Labeler
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  label-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get AI Label
+        id: ai_logic
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          # Call the model and save the result
+          LABEL=$(gh models run gpt-4o-mini --prompt "
+            You are a triage assistant. Given the following issue, 
+            choose the best label from: [bug, feature, documentation, good-first-issue].
+            Respond ONLY with the plain text label name.
+            
+            Title: $TITLE
+            Body: $BODY
+          ")
+          
+          # Clean up any extra spaces/newlines and output it
+          CLEAN_LABEL=$(echo $LABEL | xargs)
+          echo "label=$CLEAN_LABEL" >> $GITHUB_OUTPUT
+
+      - name: Apply Label to Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          LABEL: ${{ steps.ai_logic.outputs.label }}
+        run: |
+          # Apply the label using the GitHub CLI
+          gh issue edit "$ISSUE_NUMBER" --add-label "$LABEL"
