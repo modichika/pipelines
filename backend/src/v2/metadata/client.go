@@ -215,6 +215,10 @@ type ExecutionConfig struct {
 	// DAGExecution custom properties
 	IterationCount *int // Number of iterations for an iterator DAG.
 	TotalDagTasks  *int // Number of tasks inside the DAG
+
+	// PluginCustomProperties holds arbitrary key-value pairs contributed by
+	// task-level plugins (e.g. "plugins.mlflow.run_id").
+	PluginCustomProperties map[string]string
 }
 
 // InputArtifact is a wrapper around an MLMD artifact used as component inputs.
@@ -345,6 +349,26 @@ func (e *Execution) FingerPrint() string {
 		return ""
 	}
 	return e.Execution.GetCustomProperties()[keyCacheFingerPrint].GetStringValue()
+}
+
+const pluginCustomPropertyPrefix = "plugins."
+
+// ExtractPluginCustomProperties returns all MLMD execution custom properties
+// that match the plugin naming convention (keys starting with "plugins.").
+func ExtractPluginCustomProperties(execution *Execution) map[string]string {
+	if execution == nil || execution.Execution == nil {
+		return nil
+	}
+	result := map[string]string{}
+	for key, value := range execution.Execution.GetCustomProperties() {
+		if len(key) > len(pluginCustomPropertyPrefix) && key[:len(pluginCustomPropertyPrefix)] == pluginCustomPropertyPrefix {
+			result[key] = value.GetStringValue()
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // GetTaskNameWithDagID appends the taskName with its parent dag id. This is
@@ -704,6 +728,9 @@ func (c *Client) CreateExecution(ctx context.Context, pipeline *Pipeline, config
 	if config.TotalDagTasks != nil {
 		e.CustomProperties[keyTotalDagTasks] = intValue(int64(*config.TotalDagTasks))
 	}
+	for k, v := range config.PluginCustomProperties {
+		e.CustomProperties[k] = StringValue(v)
+	}
 
 	req := &pb.PutExecutionRequest{
 		Execution: e,
@@ -768,14 +795,31 @@ func (c *Client) PrePublishExecution(ctx context.Context, execution *Execution, 
 	return execution, nil
 }
 
-// UpdateDAGExecutionState checks all the statuses of the tasks in the given DAG, based on that it will update the DAG to the corresponding status if necessary.
+// UpdateDAGExecutionsState checks all the statuses of the tasks in the given DAG, based on that it will update the DAG to the corresponding status if necessary.
+// If the DAG reaches a terminal state, propagation continues upward to ancestor DAGs until reaching the root.
 func (c *Client) UpdateDAGExecutionsState(ctx context.Context, dag *DAG, pipeline *Pipeline) error {
+	// Prefer runtime iteration_count (set by ParallelFor) over compile-time total_dag_tasks.
+	// We must check key presence because iteration_count=0 is valid (empty loop)
+	// and distinct from the key being absent (non-iterator DAG).
+	customProperties := dag.Execution.GetExecution().GetCustomProperties()
+	iterationCountValue, hasIterationCount := customProperties[keyIterationCount]
+
+	var expectedTaskCount int64
+	if hasIterationCount {
+		expectedTaskCount = iterationCountValue.GetIntValue()
+	} else {
+		expectedTaskCount = customProperties[keyTotalDagTasks].GetIntValue()
+	}
+
+	if expectedTaskCount == 0 && !hasIterationCount {
+		glog.V(4).Infof("DAG %d has no expected task count (root DAG or unknown), skipping state update", dag.Execution.GetID())
+		return nil
+	}
+
 	tasks, err := c.GetExecutionsInDAG(ctx, dag, pipeline, true)
 	if err != nil {
 		return err
 	}
-
-	totalDagTasks := dag.Execution.Execution.CustomProperties["total_dag_tasks"].GetIntValue()
 
 	glog.V(4).Infof("tasks: %v", tasks)
 	glog.V(4).Infof("Checking Tasks' State")
@@ -798,17 +842,39 @@ func (c *Client) UpdateDAGExecutionsState(ctx context.Context, dag *DAG, pipelin
 	}
 	glog.V(4).Infof("completedTasks: %d", completedTasks)
 	glog.V(4).Infof("failedTasks: %d", failedTasks)
-	glog.V(4).Infof("totalTasks: %d", totalDagTasks)
+	glog.V(4).Infof("expectedTaskCount: %d", expectedTaskCount)
 
-	glog.Infof("Attempting to update DAG state")
-	if completedTasks == int(totalDagTasks) {
-		c.PutDAGExecutionState(ctx, dag.Execution.GetID(), pb.Execution_COMPLETE)
-	} else if failedTasks > 0 {
-		c.PutDAGExecutionState(ctx, dag.Execution.GetID(), pb.Execution_FAILED)
-	} else {
+	glog.Infof("Attempting to update DAG state for execution %d", dag.Execution.GetID())
+
+	var newState pb.Execution_State
+	switch {
+	case completedTasks == int(expectedTaskCount):
+		newState = pb.Execution_COMPLETE
+	case failedTasks > 0:
+		newState = pb.Execution_FAILED
+	default:
 		glog.V(4).Infof("DAG is still running")
+		return nil
 	}
-	return nil
+
+	if err := c.PutDAGExecutionState(ctx, dag.Execution.GetID(), newState); err != nil {
+		return err
+	}
+
+	// Propagate upward to parent DAG if this is not the root.
+	parentDagID := dag.Execution.GetExecution().GetCustomProperties()[keyParentDagID].GetIntValue()
+	if parentDagID == 0 {
+		glog.V(4).Infof("DAG %d is root or has no parent, stopping propagation", dag.Execution.GetID())
+		return nil
+	}
+
+	glog.Infof("Propagating state update to parent DAG %d", parentDagID)
+	parentDAG, err := c.GetDAG(ctx, parentDagID)
+	if err != nil {
+		return fmt.Errorf("failed to get parent DAG %d for recursive state update: %w", parentDagID, err)
+	}
+
+	return c.UpdateDAGExecutionsState(ctx, parentDAG, pipeline)
 }
 
 // PutDAGExecutionState updates the given DAG Id to the state provided.
@@ -1400,4 +1466,40 @@ func (c *Client) getContextByID(ctx context.Context, id int64) (*pb.Context, err
 		return nil, fmt.Errorf("getContext(id=%v): got nil context", id)
 	}
 	return contexts[0], nil
+}
+
+func FormatExecutionParameters(execution *Execution) map[string]interface{} {
+	if execution == nil {
+		return nil
+	}
+	params := make(map[string]interface{})
+	inputParams, _, err := execution.GetParameters()
+	if err != nil {
+		glog.Errorf("failed to retrieve task parameters: %v", err)
+	} else {
+		for key, value := range inputParams {
+			if value == nil {
+				params[key] = nil
+				continue
+			}
+			params[key] = value.AsInterface()
+		}
+	}
+	return params
+}
+
+func FormatScalarMetricArtifacts(outputArtifacts []*OutputArtifact) map[string]float64 {
+	metrics := map[string]float64{}
+	for _, artifact := range outputArtifacts {
+		if artifact.Artifact != nil && artifact.Artifact.GetType() == "system.Metrics" {
+			for customKey, customValue := range artifact.Artifact.CustomProperties {
+				// retrieve scalar metric artifact values. do not retrieve display_name or store_session_info.
+				if customKey == "display_name" || customKey == "store_session_info" {
+					continue
+				}
+				metrics[customKey] = customValue.GetDoubleValue()
+			}
+		}
+	}
+	return metrics
 }

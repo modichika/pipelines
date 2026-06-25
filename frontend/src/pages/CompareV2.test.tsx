@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 import { CommonTestWrapper } from 'src/TestWrapper';
-import TestUtils, { expectErrors, testBestPractices } from 'src/TestUtils';
+import TestUtils, { expectErrors, flushPromisesInAct, testBestPractices } from 'src/TestUtils';
 import { Artifact, Context, Event, Execution } from 'src/third_party/mlmd';
 import { Apis } from 'src/lib/Apis';
 import { ButtonKeys } from 'src/lib/Buttons';
@@ -198,10 +198,7 @@ describe('CompareV2', () => {
   }
 
   function getRunRow(id: string): HTMLElement {
-    const runListContainer = getRunListContainer();
-    const runRows = Array.from(
-      runListContainer.querySelectorAll('[data-testid="table-row"]'),
-    ) as HTMLElement[];
+    const runRows = within(getRunListContainer()).getAllByTestId('table-row');
     const runRow = runRows.find((row) => row.textContent?.includes(`test run ${id}`));
     if (!runRow) {
       throw new Error(`Run row not found for ${id}`);
@@ -212,10 +209,8 @@ describe('CompareV2', () => {
   async function waitForRunCheckboxes(expectedCount: number): Promise<HTMLElement[]> {
     let runCheckboxes: HTMLElement[] = [];
     await waitFor(() => {
-      const runListContainer = getRunListContainer();
-      runCheckboxes = Array.from(
-        runListContainer.querySelectorAll('[data-testid="table-row"][aria-checked="true"]'),
-      );
+      const allRows = within(getRunListContainer()).getAllByTestId('table-row');
+      runCheckboxes = allRows.filter((row) => row.getAttribute('aria-checked') === 'true');
       expect(runCheckboxes).toHaveLength(expectedCount);
     });
     return runCheckboxes;
@@ -455,6 +450,209 @@ describe('CompareV2', () => {
     });
   });
 
+  it('keeps runId-bearing selection when runId matches a valid run', () => {
+    const selectedArtifactsMap = {
+      [MetricsType.CONFUSION_MATRIX]: [
+        {
+          selectedItem: {
+            runId: MOCK_RUN_2_ID,
+            itemName: `test run ${MOCK_RUN_2_ID}`,
+            subItemName: 'artifactName',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.HTML]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.MARKDOWN]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+    };
+
+    const reconciledArtifactsMap = TEST_ONLY.reconcileSelectedArtifactsMap(selectedArtifactsMap, {
+      scalarMetricsTableData: undefined,
+      confusionMatrixRunArtifacts: [
+        { run: newMockRun(MOCK_RUN_2_ID), executionArtifacts: [] as any },
+      ],
+      htmlRunArtifacts: [],
+      markdownRunArtifacts: [],
+      rocCurveRunArtifacts: [],
+    });
+
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][0].selectedItem).toEqual({
+      runId: MOCK_RUN_2_ID,
+      itemName: `test run ${MOCK_RUN_2_ID}`,
+      subItemName: 'artifactName',
+    });
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][1].selectedItem).toEqual({
+      itemName: '',
+      subItemName: '',
+    });
+  });
+
+  it('falls back to display_name and clears runId when runId is stale but display_name still matches', () => {
+    const selectedArtifactsMap = {
+      [MetricsType.CONFUSION_MATRIX]: [
+        {
+          selectedItem: {
+            runId: 'stale-run-id',
+            itemName: `test run ${MOCK_RUN_2_ID}`,
+            subItemName: 'artifactName',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.HTML]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.MARKDOWN]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+    };
+
+    const reconciledArtifactsMap = TEST_ONLY.reconcileSelectedArtifactsMap(selectedArtifactsMap, {
+      scalarMetricsTableData: undefined,
+      confusionMatrixRunArtifacts: [
+        { run: newMockRun(MOCK_RUN_2_ID), executionArtifacts: [] as any },
+      ],
+      htmlRunArtifacts: [],
+      markdownRunArtifacts: [],
+      rocCurveRunArtifacts: [],
+    });
+
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][0].selectedItem).toEqual({
+      runId: undefined,
+      itemName: `test run ${MOCK_RUN_2_ID}`,
+      subItemName: 'artifactName',
+    });
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][1].selectedItem).toEqual({
+      itemName: '',
+      subItemName: '',
+    });
+  });
+
+  it('clears selection when both runId and display_name are invalid', () => {
+    const selectedArtifactsMap = {
+      [MetricsType.CONFUSION_MATRIX]: [
+        {
+          selectedItem: {
+            runId: 'stale-run-id',
+            itemName: 'missing run',
+            subItemName: 'staleArtifact',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.HTML]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+      [MetricsType.MARKDOWN]: [
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+        {
+          selectedItem: {
+            itemName: '',
+            subItemName: '',
+          },
+        },
+      ],
+    };
+
+    const reconciledArtifactsMap = TEST_ONLY.reconcileSelectedArtifactsMap(selectedArtifactsMap, {
+      scalarMetricsTableData: undefined,
+      confusionMatrixRunArtifacts: [
+        { run: newMockRun(MOCK_RUN_2_ID), executionArtifacts: [] as any },
+      ],
+      htmlRunArtifacts: [],
+      markdownRunArtifacts: [],
+      rocCurveRunArtifacts: [],
+    });
+
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][0].selectedItem).toEqual({
+      itemName: '',
+      subItemName: '',
+    });
+    expect(reconciledArtifactsMap[MetricsType.CONFUSION_MATRIX][1].selectedItem).toEqual({
+      itemName: '',
+      subItemName: '',
+    });
+  });
+
   it('getRun is called with query param IDs', async () => {
     const getRunSpy = vi.spyOn(Apis.runServiceApiV2, 'getRun');
     runs = [newMockRun(MOCK_RUN_1_ID), newMockRun(MOCK_RUN_2_ID), newMockRun(MOCK_RUN_3_ID)];
@@ -510,7 +708,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     // Wait for runs to render (indicates all queries resolved) before banner clears
     await waitForRunCheckboxes(3);
@@ -563,7 +761,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitForRunCheckboxes(3);
 
     await waitFor(
@@ -676,7 +874,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     screen.getByLabelText('Filter runs');
     screen.getByText('There are no Parameters available on the selected runs.');
@@ -716,7 +914,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(3);
     const headerCheckbox = getHeaderCheckbox();
@@ -737,11 +935,11 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(3);
     fireEvent.click(getRunRow(MOCK_RUN_2_ID));
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(2);
     expect(getHeaderCheckbox()).not.toBeChecked();
@@ -757,7 +955,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitFor(() => {
       expect(updateToolbarSpy).toHaveBeenCalled();
@@ -765,7 +963,7 @@ describe('CompareV2', () => {
     await waitForRunCheckboxes(3);
 
     fireEvent.click(getRunRow(MOCK_RUN_2_ID));
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitForRunCheckboxes(2);
     expect(getRunRow(MOCK_RUN_2_ID)).toHaveAttribute('aria-checked', 'false');
 
@@ -774,7 +972,7 @@ describe('CompareV2', () => {
     await act(async () => {
       await refreshAction();
     });
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(2);
     expect(getRunRow(MOCK_RUN_1_ID)).toHaveAttribute('aria-checked', 'true');
@@ -802,7 +1000,7 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitFor(() => {
       expect(updateToolbarSpy).toHaveBeenCalled();
@@ -810,7 +1008,7 @@ describe('CompareV2', () => {
     await waitForRunCheckboxes(3);
 
     fireEvent.click(getRunRow(MOCK_RUN_2_ID));
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitForRunCheckboxes(2);
 
     refreshedRunIds.add(MOCK_RUN_3_ID);
@@ -819,7 +1017,7 @@ describe('CompareV2', () => {
     await act(async () => {
       await refreshAction();
     });
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(1);
     expect(getRunRow(MOCK_RUN_1_ID)).toHaveAttribute('aria-checked', 'true');
@@ -838,11 +1036,11 @@ describe('CompareV2', () => {
         <CompareV2 {...generateProps()} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(3);
     fireEvent.click(getRunRow(MOCK_RUN_2_ID));
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitForRunCheckboxes(2);
 
     const nextProps = generateProps();
@@ -852,7 +1050,7 @@ describe('CompareV2', () => {
         <CompareV2 {...nextProps} />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitForRunCheckboxes(2);
     expect(getRunRow(MOCK_RUN_2_ID)).toHaveAttribute('aria-checked', 'true');
@@ -947,7 +1145,7 @@ describe('CompareV2', () => {
       </CommonTestWrapper>,
     );
 
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitFor(() => {
       const lastCall = getHtmlViewerConfigSpy.mock.lastCall;
       expect(lastCall?.[0]?.[0]?.artifact.getId()).toBe(updatedArtifact.getId());

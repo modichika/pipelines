@@ -16,7 +16,7 @@
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { CommonTestWrapper } from 'src/TestWrapper';
-import TestUtils, { testBestPractices } from 'src/TestUtils';
+import TestUtils, { flushPromisesInAct, testBestPractices } from 'src/TestUtils';
 import { Artifact, Event, Execution, Value } from 'src/third_party/mlmd';
 import * as metricsVisualizations from 'src/components/viewers/MetricsVisualizations';
 import * as Utils from 'src/lib/Utils';
@@ -156,7 +156,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     screen.getByText('There are no Confusion Matrix artifacts available on the selected runs.');
   });
 
@@ -169,7 +169,7 @@ describe('MetricsDropdown', () => {
         updateSelectedArtifacts={updateSelectedArtifactsSpy}
       />,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     screen.getByText('There are no HTML artifacts available on the selected runs.');
   });
 
@@ -184,7 +184,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     screen.getByText('There are no Markdown artifacts available on the selected runs.');
   });
 
@@ -199,7 +199,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     screen.getByText('Choose a first Confusion Matrix artifact');
   });
 
@@ -230,7 +230,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     await waitFor(() => {
       expect(warnSpy).toHaveBeenLastCalledWith(
@@ -254,7 +254,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     fireEvent.click(screen.getByText('Choose a first Confusion Matrix artifact'));
     fireEvent.mouseEnter(screen.getByText('run1'));
@@ -267,6 +267,7 @@ describe('MetricsDropdown', () => {
           itemName: 'run1',
           subItemName: 'execution1',
           subItemSecondaryName: 'artifact1',
+          runId: '1',
         },
       },
       {
@@ -293,7 +294,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     // Choose the first HTML element.
     fireEvent.click(screen.getByText('Choose a first HTML artifact'));
@@ -338,7 +339,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     // Choose the first Markdown element.
     fireEvent.click(screen.getByText('Choose a first Markdown artifact'));
@@ -387,7 +388,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     fireEvent.click(screen.getByText('Choose a first HTML artifact'));
     fireEvent.mouseEnter(screen.getByText('run1'));
@@ -403,7 +404,7 @@ describe('MetricsDropdown', () => {
     });
   });
 
-  it('Dropdown initially loaded with selected artifact', async () => {
+  it('Dropdown initially loaded with selected artifact (display_name fallback, no runId)', async () => {
     const newSelectedArtifacts: SelectedArtifact[] = [
       {
         selectedItem: {
@@ -431,7 +432,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     screen.getByText('Choose a first Confusion Matrix artifact');
     screen.getByLabelText('run1 > execution1 > artifact1');
@@ -448,7 +449,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
 
     const nextSelectedArtifacts: SelectedArtifact[] = [
       {
@@ -517,7 +518,7 @@ describe('MetricsDropdown', () => {
         />
       </CommonTestWrapper>,
     );
-    await TestUtils.flushPromises();
+    await flushPromisesInAct();
     await waitFor(() => {
       expect(getHtmlViewerConfigSpy).toHaveBeenLastCalledWith([staleLinkedArtifact], undefined);
     });
@@ -549,5 +550,65 @@ describe('MetricsDropdown', () => {
     await waitFor(() => {
       expect(getHtmlViewerConfigSpy).toHaveBeenLastCalledWith([freshLinkedArtifact], undefined);
     });
+  });
+
+  it('Dropdown initially loaded with selected artifact resolved via runId', async () => {
+    const getHtmlViewerConfigSpy = vi.spyOn(metricsVisualizations, 'getHtmlViewerConfig');
+    getHtmlViewerConfigSpy.mockResolvedValue([]);
+
+    const artifactFromRunA = newMockLinkedArtifact(10, 'shared-artifact');
+    const artifactFromRunB = newMockLinkedArtifact(20, 'shared-artifact');
+
+    const duplicateNameRunArtifacts: RunArtifact[] = [
+      {
+        run: { run_id: 'run-id-A', display_name: 'duplicate-run' },
+        executionArtifacts: [
+          {
+            execution: newMockExecution(10, 'execution1'),
+            linkedArtifacts: [artifactFromRunA],
+          },
+        ],
+      },
+      {
+        run: { run_id: 'run-id-B', display_name: 'duplicate-run' },
+        executionArtifacts: [
+          {
+            execution: newMockExecution(20, 'execution1'),
+            linkedArtifacts: [artifactFromRunB],
+          },
+        ],
+      },
+    ];
+
+    const selectedArtifactsWithRunId: SelectedArtifact[] = [
+      { selectedItem: { itemName: '', subItemName: '' } },
+      {
+        linkedArtifact: artifactFromRunB,
+        selectedItem: {
+          itemName: 'duplicate-run', // matches both runs' display_name
+          subItemName: 'execution1',
+          subItemSecondaryName: 'shared-artifact',
+          runId: 'run-id-B', // disambiguates to run B
+        },
+      },
+    ];
+
+    render(
+      <CommonTestWrapper>
+        <MetricsDropdown
+          filteredRunArtifacts={duplicateNameRunArtifacts}
+          metricsTab={MetricsType.HTML}
+          selectedArtifacts={selectedArtifactsWithRunId}
+          updateSelectedArtifacts={updateSelectedArtifactsSpy}
+        />
+      </CommonTestWrapper>,
+    );
+    await TestUtils.flushPromises();
+
+    // Must resolve to run B's artifact (ID 20), not run A's (ID 10).
+    await waitFor(() => {
+      expect(getHtmlViewerConfigSpy).toHaveBeenLastCalledWith([artifactFromRunB], undefined);
+    });
+    expect(getHtmlViewerConfigSpy).not.toHaveBeenCalledWith([artifactFromRunA], undefined);
   });
 });
