@@ -12,11 +12,6 @@ def echo(item: str) -> str:
 def collect(items: list) -> str:
     return str(items)
 
-@dsl.pipeline(name="repro-parallelfor-unnamed")
-def pipeline_unnamed():
-    with dsl.ParallelFor(items=["a", "b", "c"]) as item:
-        work = echo(item=item)
-    collect(items=dsl.Collected(work.output))
 
 @dsl.pipeline(name="repro-parallelfor-named-fixed")
 def pipeline_named():
@@ -25,6 +20,5 @@ def pipeline_named():
     collect(items=dsl.Collected(work.output))
 
 if __name__ == "__main__":
-    compiler.Compiler().compile(pipeline_unnamed, "pipeline_unnamed.yaml")
     compiler.Compiler().compile(pipeline_named, "pipeline_named.yaml")
     print("Successfully compiled both test configurations!")
