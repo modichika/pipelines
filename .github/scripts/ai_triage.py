@@ -1,10 +1,21 @@
-set -e
-gh extension install github/gh-models --force || true
+import os
+import sys
+import requests
 
-echo "Using model: $TARGET_MODEL"
+def truncate_text(text, max_chars=15000):
+    if not text:
+        return ""
+    if len(text) > max_chars:
+        return text[:max_chars] + "\n\n[Content truncated due to size limits...]"
+    return text
 
-read -r -d '' SYSTEM_INSTRUCTIONS << 'EOF'  || true
-You are an expert open-source maintainer for Kubeflow Pipelines.
+def main():
+    model = os.getenv("TARGET_MODEL", "openai/gpt-5")
+    api_key = os.getenv("OPENAI_API_KEY")
+    title = os.getenv("TITLE", "")
+    raw_body = os.getenv("RAW_BODY", "")
+
+    system_instructions = """You are an expert open-source maintainer for Kubeflow Pipelines.
 
 Analyze the quality of the incoming issue based on Scope, Context, Guidance, and Complexity.
              
@@ -41,29 +52,46 @@ Respond strictly following this format structure without other markdown wraps:
 
 ### 🎯 Overall Issue Quality Verdict
 - <State definitively if this is ready for immediate developer pickup>
-- <Outline the single most impactful recommendation to improve the issue quality>
-EOF
+- <Outline the single most impactful recommendation to improve the issue quality>"""
 
+    user_prompt = f"Title: {title} | Body: {truncate_text(raw_body)}"
 
-USER_PROMPT="Title: ${TITLE} | Body: ${RAW_BODY}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
 
-if RESULT=$(gh models run "$TARGET_MODEL" --system-prompt "$SYSTEM_INSTRUCTIONS" "$USER_PROMPT" 2>&1); then
-    echo "✅ AI model executed successfully."
-    ANALYSIS_REPORT="$RESULT"
-else
-    echo "⚠️ CRITICAL: AI Model execution failed or preview tier limit hit."
-    echo "Error details: $RESULT"
-            
-    read -r -d '' ANALYSIS_REPORT << 'EOF' || true
-    ### ⚠️ Automated Triage Skipped
-    The issue body text or environment logs exceeded processing size boundaries for this triage pass.
-EOF
-fi
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_instructions},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
 
-echo "analysis<<EOF" >> $GITHUB_OUTPUT
-echo "$ANALYSIS_REPORT" >> $GITHUB_OUTPUT
-echo "EOF" >> $GITHUB_OUTPUT
+    analysis_report = ""
 
-          
-echo "DEBUG: The raw analysis sent to output was:"
-echo "$ANALYSIS_REPORT"
+    try:
+        response = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
+        res_json = response.json()
+
+        if response.status_code == 200 and "choices" in res_json:
+            analysis_report = res_json["choices"][0]["message"]["content"]
+            print("AI model executed successfully.")
+        else:
+            print(f"API Error Response: {res_json}")
+            analysis_report = "### ⚠️ Automated Triage Skipped\nFailed to process request due to an API model or rate limit error."
+    except Exception as e:
+        print(f"Exception encountered: {e}")
+        analysis_report = "### ⚠️ Automated Triage Skipped\nThe issue body text or environment logs exceeded processing size boundaries for this triage pass."
+
+    # Write output for GitHub Actions safely
+    github_output_path = os.getenv("GITHUB_OUTPUT")
+    if github_output_path:
+        with open(github_output_path, "a") as f:
+            f.write("analysis<<EOF\n")
+            f.write(analysis_report + "\n")
+            f.write("EOF\n")
+
+if __name__ == "__main__":
+    main()
