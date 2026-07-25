@@ -1,8 +1,7 @@
 import os
-import sys
-import requests
+import subprocess
 
-def truncate_text(text, max_chars=15000):
+def truncate_text(text, max_chars=12000):
     if not text:
         return ""
     if len(text) > max_chars:
@@ -10,10 +9,12 @@ def truncate_text(text, max_chars=15000):
     return text
 
 def main():
-    model = os.getenv("TARGET_MODEL", "openai/gpt-5")
-    api_key = os.getenv("OPENAI_API_KEY")
+    model = os.getenv("TARGET_MODEL", "openai/gpt-4o-mini")
     title = os.getenv("TITLE", "")
     raw_body = os.getenv("RAW_BODY", "")
+
+    # Ensure GitHub Models extension is available
+    subprocess.run(["gh", "extension", "install", "github/gh-models"], capture_output=True)
 
     system_instructions = """You are an expert open-source maintainer for Kubeflow Pipelines.
 
@@ -56,34 +57,30 @@ Respond strictly following this format structure without other markdown wraps:
 
     user_prompt = f"Title: {title} | Body: {truncate_text(raw_body)}"
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_instructions},
-            {"role": "user", "content": user_prompt}
-        ]
-    }
+    print(f"Using model: {model}")
 
     analysis_report = ""
 
     try:
-        response = requests.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=30)
-        res_json = response.json()
-
-        if response.status_code == 200 and "choices" in res_json:
-            analysis_report = res_json["choices"][0]["message"]["content"]
-            print("AI model executed successfully.")
+        # Run gh models CLI command
+        result = subprocess.run(
+            [
+                "gh", "models", "run", model,
+                "--system-prompt", system_instructions,
+                user_prompt
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        analysis_report = result.stdout.strip()
+        print("AI model executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ CRITICAL: AI Model execution failed: {e.stderr}")
+        if "rate limit" in e.stderr.lower():
+            analysis_report = "### ⚠️ Automated Triage Skipped\nRate limit reached for the AI model tier. The action will retry on subsequent triggers."
         else:
-            print(f"API Error Response: {res_json}")
-            analysis_report = "### ⚠️ Automated Triage Skipped\nFailed to process request due to an API model or rate limit error."
-    except Exception as e:
-        print(f"Exception encountered: {e}")
-        analysis_report = "### ⚠️ Automated Triage Skipped\nThe issue body text or environment logs exceeded processing size boundaries for this triage pass."
+            analysis_report = "### ⚠️ Automated Triage Skipped\nThe issue body text or environment logs exceeded processing size boundaries for this triage pass."
 
     # Write output for GitHub Actions safely
     github_output_path = os.getenv("GITHUB_OUTPUT")

@@ -28,7 +28,7 @@ jobs:
       - name: Execute AI Issue Triage
         id: ai_logic
         env:
-          OPENAI_API_KEY: ${{ secrets.GH_MODELS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: ${{ github.event.issue.title }}
           RAW_BODY: ${{ github.event.issue.body }}
           TARGET_MODEL: ${{ env.TARGET_MODEL }}
