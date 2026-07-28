@@ -76,8 +76,9 @@ Respond strictly following this format structure without other markdown wraps:
             ],
             model=model
         )
-       analysis_report = response.choices[0].message.content.strip()
-       print("AI model executed successfully.")
+        
+        analysis_report = response.choices[0].message.content.strip()
+        print("AI model executed successfully.")
        
        
     except Exception as e:
