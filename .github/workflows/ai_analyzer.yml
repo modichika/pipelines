@@ -28,7 +28,7 @@ jobs:
       - name: Execute AI Issue Triage
         id: ai_logic
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: ${{ github.event.issue.title }}
           RAW_BODY: ${{ github.event.issue.body }}
           TARGET_MODEL: ${{ env.TARGET_MODEL }}
@@ -36,7 +36,7 @@ jobs:
 
       - name: Apply Quality Analysis Comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REPORT: ${{ steps.ai_logic.outputs.analysis }}
         run: |
