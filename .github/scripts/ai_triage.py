@@ -9,7 +9,7 @@ from openai import OpenAI
 #     return text
 
 def main():
-    model = os.getenv("TARGET_MODEL", "openai/gpt-5")
+    model = os.getenv("TARGET_MODEL", "openai/gpt-5-mini")
     token = os.getenv("GITHUB_TOKEN")
     endpoint = "https://models.github.ai/inference"
     
