@@ -3,6 +3,10 @@ on:
   issues:
     types: [opened]
 
+concurrency:
+  group: ai-triage-queue
+  cancel-in-progress: false 
+
 env:
   TARGET_MODEL: "openai/gpt-4o-mini"
 
