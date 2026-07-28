@@ -4,7 +4,7 @@ on:
     types: [opened]
 
 env:
-  TARGET_MODEL: "openai/gpt-5-mini"
+  TARGET_MODEL: "gpt-5"
 
 jobs:
   analyze-issue:
