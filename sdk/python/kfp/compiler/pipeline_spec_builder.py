@@ -1207,8 +1207,8 @@ def build_task_spec_for_group(
     Returns:
         A PipelineTaskSpec object representing the group.
     """
-    pipeline_task_spec = pipeline_spec_pb2.PipelineTaskSpec()
-    pipeline_task_spec.task_info.name = group.display_name or group.name
+    pipeline_task_spec = pipeline_spec_pb2.PipelineTaskSpec() # Core responsible for converting python pipeline objects .py to IR YAML.
+    pipeline_task_spec.task_info.name = group.name
     pipeline_task_spec.component_ref.name = (
         utils.sanitize_component_name(group.name))
 
