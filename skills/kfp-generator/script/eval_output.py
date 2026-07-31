@@ -84,9 +84,17 @@ spec.loader.exec_module(module)
 pipeline_func = None
 for attr_name in dir(module):
     attr = getattr(module, attr_name)
-    if hasattr(attr, "pipeline_spec") or getattr(attr, "is_pipeline", False) or type(attr).__name__ in ("Pipeline", "GraphComponent"):
+    if type(attr).__name__ in ("Pipeline", "GraphComponent") or getattr(attr, "is_pipeline", False):
         pipeline_func = attr
         break
+
+if not pipeline_func:
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name)
+        if hasattr(attr, "pipeline_spec"):
+            pipeline_func = attr
+            break
+
 
 if not pipeline_func:
     from kfp.dsl import base_component
@@ -102,9 +110,22 @@ if not pipeline_func:
 
 # Instantiate client and submit run using create_run_from_pipeline_func
 client = kfp.Client(host=host, namespace=namespace)
-run_name = f"eval_{os.path.splitext(os.path.basename(pipeline_path))[0]}"
+try:
+    if client.get_kfp_healthz().multi_user:
+        if not namespace:
+            namespace = 'user'
+            client.set_user_namespace('user')
+        for api_attr in ('_experiment_api', '_pipelines_api', '_run_api', '_upload_api'):
+            api_obj = getattr(client, api_attr, None)
+            if api_obj and hasattr(api_obj, 'api_client'):
+                api_obj.api_client.set_default_header('kubeflow-userid', 'user@example.com')
+except Exception as e:
+    pass
 
-print(f"[*] Calling create_run_from_pipeline_func for pipeline '{getattr(pipeline_func, 'name', pipeline_func.__name__)}'...")
+run_name = f"eval_{os.path.splitext(os.path.basename(pipeline_path))[0]}"
+pipe_name = getattr(pipeline_func, "name", None) or getattr(pipeline_func, "__name__", "pipeline")
+
+print(f"[*] Calling create_run_from_pipeline_func for pipeline '{pipe_name}'...")
 try:
     run_result = client.create_run_from_pipeline_func(
         pipeline_func=pipeline_func,
