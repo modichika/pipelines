@@ -61,6 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up and Start Ollama
+        if: steps.title_check.outputs.valid == 'true'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve &
