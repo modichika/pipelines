@@ -28,10 +28,12 @@ jobs:
       - name: Install Python Dependencies
         run: pip install requests
 
-      - name: Set up Ollama Server & Model
-        uses: pydantic/ollama-action@v3
-        with:
-          model: ${{ env.TARGET_MODEL }}
+      - name: Set up and Start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+          ollama pull ${{ env.TARGET_MODEL }}
 
       - name: Execute AI Issue Triage
         id: ai_logic
