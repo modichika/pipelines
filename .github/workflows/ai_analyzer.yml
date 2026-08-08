@@ -69,6 +69,7 @@ jobs:
           ollama pull ${{ env.TARGET_MODEL }}
 
       - name: Execute AI Issue Triage
+        if: steps.title_check.outputs.valid == 'true'
         id: ai_logic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,6 +80,7 @@ jobs:
         run: python .github/scripts/ai_triage.py
 
       - name: Apply Quality Analysis Comment
+        if: steps.title_check.outputs.valid == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
