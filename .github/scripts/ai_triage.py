@@ -22,16 +22,25 @@ def post_github_comment(body):
         print(f"⚠️ Failed to post comment: {e.stderr}")
 
 def run_model_with_retry(system_prompt, user_prompt, max_retries=3):
-    """Executes gh models run with exponential backoff retry logic."""
+    """Executes local Ollama inference with exponential backoff retry logic."""
+    url = "http://localhost:11434/api/generate"
     delay = 2
+    
+    payload = {
+        "model": TARGET_MODEL,
+        "prompt": f"{system_prompt}\n\nUser Input:\n{user_prompt}",
+        "stream": False
+    }
+
     for attempt in range(1, max_retries + 1):
-        cmd = ["gh", "models", "run", TARGET_MODEL, "--system-prompt", system_prompt, user_prompt]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            return result.stdout.strip()
-        
-        print(f"⚠️ Attempt {attempt} failed. Retrying in {delay}s... Error: {result.stderr.strip()}")
+        try:
+            response = requests.post(url, json=payload, timeout=120)
+            if response.status_code == 200:
+                return response.json().get("response", "").strip()
+            print(f"⚠️ Attempt {attempt} failed with status {response.status_code}. Retrying in {delay}s...")
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt} failed. Retrying in {delay}s... Error: {e}")
+            
         time.sleep(delay)
         delay *= 2  # Exponential backoff
         
