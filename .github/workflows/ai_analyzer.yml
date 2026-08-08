@@ -47,12 +47,12 @@ jobs:
                   "`<type>(<area>): <title contents>` where type is `bug`, `chore`, or `feature`."
               )
               subprocess.run(["gh", "issue", "comment", issue_num, "--body", error_msg], env={**os.environ, "GH_TOKEN": token})
-              with open(github_output, "a") as f:
+              with open(github_output_path, "a") as f:
                   f.write("valid=false\n")
               sys.exit(0)
           else:
               print("✅ Title format valid.")
-              with open(github_output, "a") as f:
+              with open(github_output_path, "a") as f:
                   f.write("valid=true\n")
           '
         env:
