@@ -35,6 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: ${{ github.event.issue.title }}
           RAW_BODY: ${{ github.event.issue.body }}
+          LABELS: ${{ toJson(github.event.issue.labels.*.name) }}
           TARGET_MODEL: ${{ env.TARGET_MODEL }}
         run: python .github/scripts/ai_triage.py
 
@@ -46,4 +47,3 @@ jobs:
         run: |
           gh issue comment "$ISSUE_NUMBER" --body "## 🤖 AI Issue Quality Review
           $REPORT"
-
