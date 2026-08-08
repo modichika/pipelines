@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false 
 
 env:
-  TARGET_MODEL: "qwen2.5:7b" # Local model to pull and run via Ollama
+  TARGET_MODEL: "qwen2.5:7b"
 
 jobs:
   analyze-issue:
@@ -28,6 +28,32 @@ jobs:
       - name: Install Python Dependencies
         run: pip install requests
 
+      - name: Validate Issue Title
+        run: |
+          python -c '
+          import os, re, sys, subprocess
+          title = os.getenv("TITLE", "")
+          issue_num = os.getenv("ISSUE_NUMBER")
+          token = os.getenv("GITHUB_TOKEN")
+          
+          pattern = r"^([a-z]+)\(([a-z]+)\):\s*(.+)$"
+          if not re.match(pattern, title.strip()):
+              print("❌ Title format invalid.")
+              # Post comment to the issue before exiting
+              error_msg = (
+                  "🤖 **AI Issue Quality Review**\n\n"
+                  "⚠️ **Validation Failed:** Issue title must follow the correct format: "
+                  "`<type>(<area>): <title contents>` where type is `bug`, `chore`, or `feature`."
+              )
+              subprocess.run(["gh", "issue", "comment", issue_num, "--body", error_msg], env={**os.environ, "GH_TOKEN": token})
+              sys.exit(1)
+          print("✅ Title format valid.")
+          '
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up and Start Ollama
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
@@ -41,7 +67,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: ${{ github.event.issue.title }}
           RAW_BODY: ${{ github.event.issue.body }}
-          LABELS: ${{ toJson(github.event.issue.labels.*.name) }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           TARGET_MODEL: ${{ env.TARGET_MODEL }}
         run: python .github/scripts/ai_triage.py
 
