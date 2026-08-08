@@ -35,6 +35,7 @@ jobs:
           title = os.getenv("TITLE", "")
           issue_num = os.getenv("ISSUE_NUMBER")
           token = os.getenv("GITHUB_TOKEN")
+          github_output_path = os.getenv("GITHUB_OUTPUT")
           
           pattern = r"^([a-z]+)\(([a-z]+)\):\s*(.+)$"
           if not re.match(pattern, title.strip()):
