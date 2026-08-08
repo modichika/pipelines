@@ -29,6 +29,9 @@ jobs:
       - name: Install Dependencies
         run: pip install openai
 
+      - name: Install GitHub CLI Models Extension
+        run: gh extension install github/gh-models --force
+
       - name: Execute AI Issue Triage
         id: ai_logic
         env:
