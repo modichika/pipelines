@@ -3,6 +3,7 @@ import re
 import sys
 import time
 import subprocess
+import requests
 
 # Configuration from Environment Variables
 TARGET_MODEL = os.getenv("TARGET_MODEL", "openai/gpt-4o-mini")
