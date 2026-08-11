@@ -24,16 +24,4 @@ jobs:
             echo "is_valid=false" >> $GITHUB_OUTPUT
             gh issue comment $ISSUE_NUM --body "⚠️ **Issue Title Format Error**\n\nYour issue title must follow: \`<type>(<area>): <title contents>\`\n- **Types:** bug, chore, feature\n- **Areas:** frontend, backend, sdk, testing"
           fi
-
-  eval-subsections:
-    needs: validate-title
-    if: needs.validate-title.outputs.is_valid == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      # Executes the gh-aw Copilot engine solely for subsection text evaluation
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Install gh-aw
-        run: gh extension install github/gh-aw
-      - name: Run gh-aw Triage Agent
-        run: gh aw compile .github/workflows/ai-issue-triage.md
+          
