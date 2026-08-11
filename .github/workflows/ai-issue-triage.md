@@ -5,7 +5,7 @@ on:
   issues:
     types: [opened]
 safe-outputs:
-  add-comment: true
+  add-comment:
 
 ---
 
