@@ -9,6 +9,8 @@ jobs:
     outputs:
       is_valid: ${{ steps.check.outputs.is_valid }}
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
       - id: check
         env:
           TITLE: ${{ github.event.issue.title }}
