@@ -36,4 +36,4 @@ jobs:
       - name: Install gh-aw
         run: gh extension install github/gh-aw
       - name: Run gh-aw Triage Agent
-        run: gh aw run .github/workflows/ai-issue-triage.md
+        run: gh aw compile .github/workflows/ai-issue-triage.md
