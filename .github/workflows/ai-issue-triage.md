@@ -6,11 +6,12 @@ on:
     types: [opened]
 engine: gemini
 model: gemini-2.5-flash
+permissions:
+  issues: read
+  contents: read
 safe-outputs:
   add-comment:
 
-permissions:
-  copilot-requests: write
 
 ---
 
