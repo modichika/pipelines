@@ -7,9 +7,9 @@ on:
 permissions:
   issues: write
   contents: read
-tools:
-  github:
-    - create_issue_comment
+permissions:
+  issues: write
+  contents: read
 ---
 
 # Kubeflow Pipelines Issue Quality Triager & Commenter
