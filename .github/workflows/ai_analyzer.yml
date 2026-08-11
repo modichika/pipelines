@@ -1,90 +1,37 @@
-name: AI Issue Quality Analyzer
+name: AI Issue Triage Agent
 on:
   issues:
     types: [opened]
 
-concurrency:
-  group: ai-triage-queue
-  cancel-in-progress: false 
-
-env:
-  TARGET_MODEL: "qwen2.5:7b"
-
 jobs:
-  analyze-issue:
+  validate-title:
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      contents: read
+    outputs:
+      is_valid: ${{ steps.check.outputs.is_valid }}
     steps:
-      - name: Checkout
+      - id: check
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+        run: |
+          PATTERN="^(bug|chore|feature)\((frontend|backend|sdk|testing)\): .+"
+          if [[ "$TITLE" =~ $PATTERN ]]; then
+            echo "is_valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_valid=false" >> $GITHUB_OUTPUT
+            gh issue comment $ISSUE_NUM --body "⚠️ **Issue Title Format Error**\n\nYour issue title must follow: \`<type>(<area>): <title contents>\`\n- **Types:** bug, chore, feature\n- **Areas:** frontend, backend, sdk, testing"
+          fi
+
+  eval-subsections:
+    needs: validate-title
+    if: needs.validate-title.outputs.is_valid == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Executes the gh-aw Copilot engine solely for subsection text evaluation
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Python Dependencies
-        run: pip install requests
-
-      - name: Validate Issue Title
-        run: |
-          python -c '
-          import os, re, sys, subprocess
-          title = os.getenv("TITLE", "")
-          issue_num = os.getenv("ISSUE_NUMBER")
-          token = os.getenv("GITHUB_TOKEN")
-          github_output_path = os.getenv("GITHUB_OUTPUT")
-          
-          pattern = r"^([a-z]+)\(([a-z]+)\):\s*(.+)$"
-          if not re.match(pattern, title.strip()):
-              print("❌ Title format invalid.")
-              # Post comment to the issue before exiting
-              error_msg = (
-                  "🤖 **AI Issue Quality Review**\n\n"
-                  "⚠️ **Validation Failed:** Issue title must follow the correct format: "
-                  "`<type>(<area>): <title contents>` where type is `bug`, `chore`, or `feature`."
-              )
-              subprocess.run(["gh", "issue", "comment", issue_num, "--body", error_msg], env={**os.environ, "GH_TOKEN": token})
-              with open(github_output_path, "a") as f:
-                  f.write("valid=false\n")
-              sys.exit(0)
-          else:
-              print("✅ Title format valid.")
-              with open(github_output_path, "a") as f:
-                  f.write("valid=true\n")
-          '
-        env:
-          TITLE: ${{ github.event.issue.title }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up and Start Ollama
-        if: steps.title_check.outputs.valid == 'true'
-        run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &
-          sleep 5
-          ollama pull ${{ env.TARGET_MODEL }}
-
-      - name: Execute AI Issue Triage
-        if: steps.title_check.outputs.valid == 'true'
-        id: ai_logic
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TITLE: ${{ github.event.issue.title }}
-          RAW_BODY: ${{ github.event.issue.body }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          TARGET_MODEL: ${{ env.TARGET_MODEL }}
-        run: python .github/scripts/ai_triage.py
-
-      - name: Apply Quality Analysis Comment
-        if: steps.title_check.outputs.valid == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          REPORT: ${{ steps.ai_logic.outputs.analysis }}
-        run: |
-          gh issue comment "$ISSUE_NUMBER" --body "## 🤖 AI Issue Quality Review
-          $REPORT"
+      - name: Install gh-aw
+        run: gh extension install github/gh-aw
+      - name: Run gh-aw Triage Agent
+        run: gh aw run .github/workflows/ai-issue-triage.md
