@@ -7,6 +7,9 @@ on:
 safe-outputs:
   add-comment:
 
+permissions:
+  copilot-requests: write
+
 ---
 
 # Kubeflow Pipelines Issue Quality Triager & Commenter
