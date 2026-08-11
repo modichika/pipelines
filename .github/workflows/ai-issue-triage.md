@@ -4,10 +4,9 @@ description: Automatically analyze new and updated issues against KFP quality st
 on:
   issues:
     types: [opened]
-permissions:
-  issues: write
-  contents: read
-  
+safe-outputs:
+  add-comment: true
+
 ---
 
 # Kubeflow Pipelines Issue Quality Triager & Commenter
