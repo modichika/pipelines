@@ -4,8 +4,8 @@ description: Automatically analyze new and updated issues against KFP quality st
 on:
   issues:
     types: [opened]
-engine: copilot
-model: gpt-4o-mini
+engine: gemini
+model: gemini-3.5-flash
 safe-outputs:
   add-comment:
 
