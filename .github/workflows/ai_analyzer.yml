@@ -34,7 +34,7 @@ jobs:
           TARGET_MODEL: "openai/gpt-4o-mini"
         run: python .github/scripts/ai_triage.py
 
-      - name: Apply Quality Analysis Comment
+      - name: Post Issue Review or Validation Comment
         if: ${{ steps.ai_logic.outputs.analysis != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
