@@ -11,16 +11,6 @@ RAW_BODY = os.getenv("RAW_BODY", "")
 GH_TOKEN = os.getenv("GH_TOKEN")
 ISSUE_NUMBER = os.getenv("ISSUE_NUMBER")
 
-def post_github_comment(body):
-    """Posts a comment back to the GitHub issue."""
-    if not ISSUE_NUMBER or not GH_TOKEN:
-        return
-    cmd = ["gh", "issue", "comment", str(ISSUE_NUMBER), "--body", body]
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️ Failed to post comment: {e.stderr}")
-
 def run_model_with_retry(system_prompt, user_prompt, max_retries=3):
     """Executes gh models run with exponential backoff retry logic."""
     delay = 2
@@ -58,8 +48,6 @@ def main():
             "`<type>(<area>): <title contents>` where type is `bug`, `chore`, or `feature`."
         )
         print("❌ Title format invalid.")
-        post_github_comment(error_msg)
-        sys.exit(0)
 
     print(f"✅ Title validated successfully. Type: {issue_type}, Area: {issue_area}")
 
