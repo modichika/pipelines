@@ -1,27 +1,43 @@
-name: AI Issue Triage Agent
+name: AI Issue Quality Analyzer
 on:
   issues:
     types: [opened]
 
 jobs:
-  validate-title:
+  analyze-issue:
     runs-on: ubuntu-latest
-    outputs:
-      is_valid: ${{ steps.check.outputs.is_valid }}
+    permissions:
+      issues: write
+      contents: read
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      - id: check
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Python Dependencies
+        run: pip install requests
+
+      - name: Execute AI Issue Triage
+        if: steps.title_check.outputs.valid == 'true'
+        id: ai_logic
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TITLE: ${{ github.event.issue.title }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
+          RAW_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TARGET_MODEL: "openai/gpt-4o-mini"
+        run: python .github/scripts/ai_triage.py
+
+      - name: Apply Quality Analysis Comment
+        if: ${{ steps.ai_logic.outputs.analysis != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPORT: ${{ steps.ai_logic.outputs.analysis }}
         run: |
-          PATTERN="^(bug|chore|feature)\((frontend|backend|sdk|testing)\): .+"
-          if [[ "$TITLE" =~ $PATTERN ]]; then
-            echo "is_valid=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_valid=false" >> $GITHUB_OUTPUT
-            gh issue comment $ISSUE_NUM --body "⚠️ **Issue Title Format Error**\n\nYour issue title must follow: \`<type>(<area>): <title contents>\`\n- **Types:** bug, chore, feature\n- **Areas:** frontend, backend, sdk, testing"
-          fi
-          
+          gh issue comment "$ISSUE_NUMBER" --body "## 🤖 AI Issue Quality Review
+          $REPORT"
