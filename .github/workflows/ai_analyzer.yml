@@ -21,6 +21,9 @@ jobs:
       - name: Install Python Dependencies
         run: pip install requests
 
+      - name: Install GitHub Models Extension
+        run: gh extension install github/gh-models
+
       - name: Execute AI Issue Triage
         id: ai_logic
         env:
