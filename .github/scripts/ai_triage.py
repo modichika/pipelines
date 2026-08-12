@@ -101,6 +101,7 @@ Respond strictly following this format structure without other markdown wraps:
             f.write("analysis<<EOF\n")
             f.write(analysis_report + "\n")
             f.write("EOF\n")
+    sys.exit(0)
 
     print("DEBUG: The raw analysis sent to output was:")
     print(analysis_report)
