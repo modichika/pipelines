@@ -65,6 +65,43 @@ func ClassifyPodStatus(podStatus *v1.PodStatus) *PodLifecycleDiagnostics {
 		}
 	}
 
+
+	statusText := podStatus.Reason + " " + podStatus.Message
+	if strings.Contains(statusText, "OOMKilled") {
+		return &PodLifecycleDiagnostics{
+			Category: CategoryRuntimeCrash,
+			ReasonCode: "OOMKilled",
+			RawExitCode: 137,
+			HumanExplanation: "Container Killed: exceeded allocated memory limit (exit code 137).",
+			RemediationRecommendation: "Increase container memory limit using SDK .set_memory_limit() method.",
+			DocumentationURL: DefaultDocsURL + "#oomkilled",
+		}
+	}
+
+	if strings.Contains(statusText, "ImagePullBackOff") || strings.Contains(statusText, "ErrImagePull") {
+		return &PodLifecycleDiagnostics{
+			Category: CategoryProvisioningFailure,
+			ReasonCode: "ImagePullBackOff",
+			RawExitCode: -1,
+			HumanExplanation: "Container image could not be pulled.",
+			RemediationRecommendation: "Verify image name, tag, and imagePullSecrets credentials.",
+			DocumentationURL: DefaultDocsURL + "#imagepullbackoff",
+		}
+	}
+
+	if strings.Contains(statusText, "Unschedulable") {
+		return &PodLifecycleDiagnostics{
+			Category: CategorySchedulingFailure,
+			ReasonCode: "Unschedulable",
+			RawExitCode: -1,
+			HumanExplanation: "Pod could not be scheduled on any node.",
+			RemediationRecommendation: "Verify cluster CPU/GPU capacity or lower task resource requests.",
+			DocumentationURL: DefaultDocsURL + "#unschedulable",
+		}
+	}
+	
+
+
 	// 2. Check Container Level Statuses (Waiting or Terminated)
 	containerStatuses := append(podStatus.InitContainerStatuses, podStatus.ContainerStatuses...)
 	for _, cs := range containerStatuses {
