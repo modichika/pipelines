@@ -48,6 +48,13 @@ def main():
             "`<type>(<area>): <title contents>` where type is `bug`, `chore`, or `feature`."
         )
         print("❌ Title format invalid.")
+        github_output_path = os.getenv("GITHUB_OUTPUT")
+        if github_output_path:
+            with open(github_output_path, "a") as f:
+                f.write("analysis<<EOF\n")
+                f.write(error_msg + "\n")
+                f.write("EOF\n")
+        sys.exit(0)
 
     print(f"✅ Title validated successfully. Type: {issue_type}, Area: {issue_area}")
 
@@ -101,7 +108,6 @@ Respond strictly following this format structure without other markdown wraps:
             f.write("analysis<<EOF\n")
             f.write(analysis_report + "\n")
             f.write("EOF\n")
-    sys.exit(0)
 
     print("DEBUG: The raw analysis sent to output was:")
     print(analysis_report)
