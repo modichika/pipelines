@@ -41,5 +41,4 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REPORT: ${{ steps.ai_logic.outputs.analysis }}
         run: |
-          gh issue comment "$ISSUE_NUMBER" --body "## 🤖 AI Issue Quality Review
-          $REPORT"
+          gh issue comment "$ISSUE_NUMBER" --body "$REPORT"
