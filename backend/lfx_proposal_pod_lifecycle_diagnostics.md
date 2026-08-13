@@ -13,20 +13,20 @@
 2. `persistence-agent` only watches Workflow CRDs, dropping Pod-level failure reasons before they reach the API Server or Database.
 3. Users are forced to drop down to `kubectl` CLI debugging, leaking the abstraction.
 
-**Goal:** Build an end-to-end architecture across `persistence-agent`, `ml-pipeline` API Server, MySQL DB/MLMD, Protobuf contracts, and React UI to capture, store, enforce timeouts for, and visually present Pod lifecycle failures inside the KFP Console.
+**Goal:** Build an end-to-end architecture across `persistence-agent`, `ml-pipeline` API Server, MySQL DB, Protobuf contracts, and React UI to capture, store, enforce timeouts for, and visually present Pod lifecycle failures inside the KFP Console.
 
 ---
 
 ### 2. Architecture: Watcher, APIServer & Database Integration
 
 **Data Flow:**  
-`[Pod Namespace]` ──► `[K8s API/etcd]` ──► `[persistence-agent Watcher]` ──► `[ml-pipeline API Server]` ──► `[MySQL DB / MLMD]` ──► `[KFP React UI]`
+`[Pod Namespace]` ──► `[K8s API/etcd]` ──► `[persistence-agent Watcher]` ──► `[ml-pipeline API Server]` ──► `[Native KFP MySQL DB]` ──► `[KFP React UI]`
 
-* **Phase A: Go Watcher (`persistence-agent`):** Extend `PersistenceAgent` ([`persistence_agent.go`](file:///home/shristi/pipelines/backend/src/agent/persistence/persistence_agent.go)) with a `PodInformer` & `EventInformer` (`client-go`) filtered by `workflows.argoproj.io/workflow`. Extract container states (`Waiting.Reason`: `ImagePullBackOff`, `Terminated.Reason`: `OOMKilled`) and Pod conditions (`PodScheduled=False`). Map Pods to tasks via `workflows.argoproj.io/node-name` and report diagnostic payloads to the API Server.
+* **Phase A: Go Watcher (`persistence-agent`):** Extend `PersistenceAgent` ([`persistence_agent.go`](file:///home/shristi/pipelines/backend/src/agent/persistence/persistence_agent.go)) with an engine-agnostic diagnostic extractor operating on the `Execution`/`Workflow` object. Extract container states (`Waiting.Reason`: `ImagePullBackOff`, `Terminated.Reason`: `OOMKilled`) and Pod conditions (`PodScheduled=False`). Map Pods to tasks via `workflows.argoproj.io/node-name` and report diagnostic payloads to the API Server.
 * **Phase B: APIServer & Database State Engine:**
-  * **Proto Schema:** Update `run.proto` ([`PipelineTaskDetail`](file:///home/shristi/pipelines/backend/api/v2beta1/run.proto#L320)) adding `PodLifecycleState` enum & `PodLifecycleDetail` message (`state`, `reason`, `message`, `last_transition_time`).
+  * **Proto Schema:** Update `run.proto` ([`PipelineTaskDetail`](file:///home/shristi/pipelines/backend/api/v2beta1/run.proto#L320)) and `report.proto` adding a minimal `PodLifecycleDiagnostics` message (`error_code`, `error_message`).
   * **APIServer Timeout Engine:** Add configurable timeout evaluators (`PROVISIONING_TIMEOUT_SECONDS`, `CRASH_LOOP_TIMEOUT_SECONDS`) in `ml-pipeline` API Server to trigger controlled workflow termination when thresholds are breached.
-  * **Database & MLMD Persistence:** Update API Server persistence layer (`resource_manager`) to write `PodLifecycleDetail` into MySQL database tables and MLMD Execution custom properties *before* task termination, repairing the data pipeline so failure logs are never lost.
+  * **Database Persistence (MLMD Removal Alignment #12147):** Update API Server persistence layer (`resource_manager`) to write `PodLifecycleDetail` into native KFP MySQL database tables (`PipelineTaskDetail`) *before* task termination, repairing the data pipeline so failure logs are never lost.
 * **Phase C: React 19 UI Diagnostics:** Upgrade DAG Graph and Details drawer in [`frontend/src/`](file:///home/shristi/pipelines/frontend/src/). Display Amber/Orange badges for provisioning warnings and Red badges for runtime/node failures, alongside inline diagnostic banners and hover tooltips linking to docs.
 
 ---

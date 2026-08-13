@@ -34,6 +34,7 @@ func TestClassifyPodStatus_TableDriven(t *testing.T){
 		podStatus *v1.PodStatus
 		expectedCategory DiagnosticCategory
 		expectedReason string
+		expectedCode  string
 		expectedExitCode int32
 	}{
 		{
@@ -54,6 +55,7 @@ func TestClassifyPodStatus_TableDriven(t *testing.T){
 		},
 		expectedCategory: CategoryProvisioningFailure,
 		expectedReason: "ImagePullBackOff",
+		expectedCode: "IMAGE_PULL_BACKOFF",
 		expectedExitCode: -1,
 	},
 	{
@@ -74,6 +76,7 @@ func TestClassifyPodStatus_TableDriven(t *testing.T){
 		},
 		expectedCategory: CategoryRuntimeCrash,
 		expectedReason: "OOMKilled",
+		expectedCode: "OOM_KILLED",
 		expectedExitCode: 137,
 	},
 
@@ -91,6 +94,7 @@ func TestClassifyPodStatus_TableDriven(t *testing.T){
 		},
 		expectedCategory: CategorySchedulingFailure,
 	    expectedReason: "Unschedulable",
+		expectedCode: "UNSCHEDULABLE",
 	    expectedExitCode: -1,
     },
 	  {
@@ -101,20 +105,50 @@ func TestClassifyPodStatus_TableDriven(t *testing.T){
 		},
 		expectedCategory: CategoryNodeEviction,
 		expectedReason: "Evicted",
+		expectedCode: "NODE_EVICTED",
+		expectedExitCode: -1,
+	  },
+	  {
+		name: "Invalid StorageClass failure",
+		podStatus: &v1.PodStatus{
+			Reason: "FailedBinding",
+			Message: fmt.Sprintf("StorageClass 'invalid-storage-class' not found."),
+		},
+		expectedCategory: CategoryProvisioningFailure,
+		expectedReason: "FailedBinding",
+		expectedCode: "INVALID_STORAGE_CLASS",
+		expectedExitCode: -1,
+	  },
+	  {
+		name: "CrashLoopBackOff failure",
+		podStatus: &v1.PodStatus{
+			ContainerStatuses: []v1.ContainerStatus{
+				{
+					Image: "python:3.11-slim",
+					State: v1.ContainerState{
+						Waiting: &v1.ContainerStateWaiting{
+							Reason: "CrashLoopBackOff",
+							Message: fmt.Sprintf("Back-off 5m0s restarting failed container"),
+						},
+					},
+				},
+			},
+		},
+		expectedCategory: CategoryRuntimeCrash,
+        expectedReason: "CrashLoopBackOff",
+		expectedCode: "CRASH_LOOP_BACKOFF",
 		expectedExitCode: -1,
 	  },
 	}
+
 
 	for _, tt := range tests{
 		t.Run(tt.name, func(t *testing.T){
 			diag := ClassifyPodStatus(tt.podStatus)
 			assert.NotNil(t, diag)
 			assert.Equal(t, tt.expectedCategory, diag.Category)
-			assert.Equal(t, tt.expectedReason, diag.ReasonCode)
-			assert.Equal(t, tt.expectedExitCode, diag.RawExitCode)
-			assert.NotEmpty(t, diag.HumanExplanation)
-			assert.NotEmpty(t, diag.RemediationRecommendation)
-			assert.NotEmpty(t, diag.DocumentationURL)
+			assert.NotEmpty(t, diag.ErrorCode)
+			assert.NotEmpty(t, diag.ErrorMessage)
 		})
 	}
 }

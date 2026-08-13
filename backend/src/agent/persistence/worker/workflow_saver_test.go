@@ -297,5 +297,5 @@ func TestWorkflowSaver_ExtractPodDiagnostics_OOMKilled(t *testing.T) {
 	assert.NotNil(t, diags)
 	assert.Contains(t, diags, "node-oom")
 	assert.Equal(t, diagnostics.CategoryRuntimeCrash, diags["node-oom"].Category)
-	assert.Equal(t, "OOMKilled", diags["node-oom"].ReasonCode)
+	assert.Equal(t, "OOMKilled", diags["node-oom"].ErrorCode)
 }

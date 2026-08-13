@@ -33,11 +33,8 @@ const (
 
 type PodLifecycleDiagnostics struct {
 	Category   DiagnosticCategory  `json:"category"`
-	ReasonCode  string             `json:"reason_code"`
-	RawExitCode  int32			 `json:"raw_exit_code"`
-	HumanExplanation  string 		   `json:"human_explanation"`
-	RemediationRecommendation  string 	   `json:"remediation_recommendation"`
-	DocumentationURL    string 		   `json:"documentation_url"`
+	ErrorCode   string          `json:"error_code"`
+	ErrorMessage  string       `json:"error_message"`
 }
 
 
@@ -57,46 +54,43 @@ func ClassifyPodStatus(podStatus *v1.PodStatus) *PodLifecycleDiagnostics {
 	if strings.EqualFold(podStatus.Reason, "Evicted") || strings.EqualFold(podStatus.Reason, "Preempted") {
 		return &PodLifecycleDiagnostics{
 			Category: CategoryNodeEviction,
-			ReasonCode: podStatus.Reason,
-			RawExitCode: -1,
-			HumanExplanation: fmt.Sprintf("The pod was evicted or preempted from node: %s", podStatus.Message),
-			RemediationRecommendation: "Retry execution or request non-preemptible node instances.",
-			DocumentationURL: DefaultDocsURL + "#node-eviction",
+			ErrorCode: "NODE_EVICTED",
+			ErrorMessage: fmt.Sprintf("The pod was evicted or preempted: %s", podStatus.Message),
+		}
+	}
+
+	statusText := podStatus.Reason + " " + podStatus.Message
+
+	if strings.Contains(statusText, "storageclass.storage.k8s.io") || strings.Contains(statusText, "StorageClass") && strings.Contains(statusText, "not found") {
+		return &PodLifecycleDiagnostics{
+			Category: CategoryProvisioningFailure,
+			ErrorCode: "INVALID_STORAGE_CLASS",
+			ErrorMessage: fmt.Sprintf("The pod could not be provisioned due to missing storage class: %s", podStatus.Message),
 		}
 	}
 
 
-	statusText := podStatus.Reason + " " + podStatus.Message
 	if strings.Contains(statusText, "OOMKilled") {
 		return &PodLifecycleDiagnostics{
 			Category: CategoryRuntimeCrash,
-			ReasonCode: "OOMKilled",
-			RawExitCode: 137,
-			HumanExplanation: "Container Killed: exceeded allocated memory limit (exit code 137).",
-			RemediationRecommendation: "Increase container memory limit using SDK .set_memory_limit() method.",
-			DocumentationURL: DefaultDocsURL + "#oomkilled",
+			ErrorCode: "OOMKilled",
+			ErrorMessage: fmt.Sprintf("The pod was evicted or preempted: %s", podStatus.Message),
 		}
 	}
 
 	if strings.Contains(statusText, "ImagePullBackOff") || strings.Contains(statusText, "ErrImagePull") {
 		return &PodLifecycleDiagnostics{
 			Category: CategoryProvisioningFailure,
-			ReasonCode: "ImagePullBackOff",
-			RawExitCode: -1,
-			HumanExplanation: "Container image could not be pulled.",
-			RemediationRecommendation: "Verify image name, tag, and imagePullSecrets credentials.",
-			DocumentationURL: DefaultDocsURL + "#imagepullbackoff",
+			ErrorCode: "IMAGE_PULL_BACKOFF",
+			ErrorMessage: fmt.Sprintf("Container image could not be pulled: %s", podStatus.Message),
 		}
 	}
 
 	if strings.Contains(statusText, "Unschedulable") {
 		return &PodLifecycleDiagnostics{
 			Category: CategorySchedulingFailure,
-			ReasonCode: "Unschedulable",
-			RawExitCode: -1,
-			HumanExplanation: "Pod could not be scheduled on any node.",
-			RemediationRecommendation: "Verify cluster CPU/GPU capacity or lower task resource requests.",
-			DocumentationURL: DefaultDocsURL + "#unschedulable",
+			ErrorCode: "UNSCHEDULABLE",
+			ErrorMessage: fmt.Sprintf("The pod could not be scheduled on any node: %s", podStatus.Message),
 		}
 	}
 	
@@ -111,30 +105,23 @@ func ClassifyPodStatus(podStatus *v1.PodStatus) *PodLifecycleDiagnostics {
 				case "ImagePullBackOff", "ErrImagePull":
 					return &PodLifecycleDiagnostics{
 						Category: CategoryProvisioningFailure,
-						ReasonCode: reason,
-						RawExitCode: -1,
-						HumanExplanation: fmt.Sprintf("Container image '%s' could not be pulled: %s", cs.Image, cs.State.Waiting.Message),
-						RemediationRecommendation: "Verify image name, tag, and imagePullSecrets credentials.",
-						DocumentationURL: DefaultDocsURL + "#imagepullbackoff",
+						ErrorCode: "IMAGE_PULL_BACKOFF",
+						ErrorMessage: fmt.Sprintf("Container image '%s' could not be pulled: %s", cs.Image, cs.State.Waiting.Message),
 					}
 				case "InvalidImageName":
 					return &PodLifecycleDiagnostics{
 						Category: CategoryProvisioningFailure,
-						ReasonCode: reason,
-						RawExitCode: -1,
-						HumanExplanation: fmt.Sprintf("Invalid container image format specified %s", cs.Image),
-						RemediationRecommendation: "Check image string formatting in component definition.",
-						DocumentationURL: DefaultDocsURL + "#invalidimagename",
+						ErrorCode: "INVALID_IMAGE_NAME",
+						ErrorMessage: fmt.Sprintf("Container image '%s' has an invalid name: %s", cs.Image, cs.State.Waiting.Message),
+						
 
 			}
 			    case "CrashLoopBackOff":
 					return &PodLifecycleDiagnostics{
 						Category: CategoryRuntimeCrash,
-						ReasonCode: reason,
-						RawExitCode: -1,
-						HumanExplanation: "Container failed repeatedly immediately after starting",
-						RemediationRecommendation: "Inspect component entrypoint command and application logs.",
-						DocumentationURL: DefaultDocsURL + "#crashloopbackoff",
+						ErrorCode: "CRASH_LOOP_BACKOFF",
+						ErrorMessage: fmt.Sprintf("Container '%s' is in a crash loop, failed repeatedly: %s", cs.Image, cs.State.Waiting.Message),
+						
 		}
 	}
 
@@ -146,40 +133,32 @@ func ClassifyPodStatus(podStatus *v1.PodStatus) *PodLifecycleDiagnostics {
 			if term.Reason == "OOMKilled" || term.ExitCode == 137 {
                 return &PodLifecycleDiagnostics{
 					Category: CategoryRuntimeCrash,
-					ReasonCode: "OOMKilled",
-					RawExitCode: term.ExitCode,
-					HumanExplanation: fmt.Sprintf("Container Killed: exceeded aloocated memory limit (exit code %d).", term.ExitCode),
-					RemediationRecommendation: "Increase container memory limit using SDK .set_memory_limit() method.",
-					DocumentationURL: DefaultDocsURL + "#oomkilled",
+					ErrorCode: "OOM_KILLED",
+					ErrorMessage: fmt.Sprintf("Container '%s' was terminated due to out-of-memory (OOMKilled): %d", cs.Image, term.ExitCode),
+					
 				}
 			}
 			
 			if term.ExitCode != 0 {
 				return &PodLifecycleDiagnostics{
 					Category: CategoryRuntimeCrash,
-					ReasonCode: term.Reason,
-					RawExitCode: term.ExitCode,
-					HumanExplanation: fmt.Sprintf("Container exited with non-zero status code %d. Reason: %s", term.ExitCode, term.Message),
-					RemediationRecommendation: "Review task execution logs for application-level runtime errors.",
-					DocumentationURL: DefaultDocsURL + "#runtime-error",
-
+					ErrorCode: "RUNTIME_ERROR",
+					ErrorMessage: fmt.Sprintf("Container '%s' failed at runtime: %d", cs.Image, term.ExitCode),
+				}
 			}
 		}
 
 	}
 
-}
+
   // 3. Check Pod Level Conditions (Scheduling Failures)
   for _, condition := range podStatus.Conditions {
         if condition.Type == v1.PodScheduled && condition.Status == v1.ConditionFalse {
 			if condition.Reason == v1.PodReasonUnschedulable || strings.Contains(condition.Message, "insufficient") {
 				return &PodLifecycleDiagnostics{
 					Category: CategorySchedulingFailure,
-					ReasonCode: "Unschedulable",
-					RawExitCode: -1,
-					HumanExplanation: fmt.Sprintf("Pod could not be scheduled on cluster nodes: %s", condition.Message),
-					RemediationRecommendation: "Verify cluster CPU/GPU capacity or lower task resource requests.",
-					DocumentationURL: DefaultDocsURL + "#unschedulable",
+					ErrorCode: "POD_UNSCHEDULABLE",
+					ErrorMessage: fmt.Sprintf("The pod could not be scheduled on any node: %s", condition.Message),
 				}
 			}
 		}
