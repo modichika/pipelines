@@ -14,4 +14,8 @@ frontend/test/package-lock.json linguist-generated
 # Ignore generated TS client library
 frontend/src/apis/* linguist-generated
 
+<<<<<<< HEAD
 .github/workflows/*.lock.yml linguist-generated=true
+=======
+.github/workflows/*.lock.yml linguist-generated=true
+>>>>>>> f967d47f9 (compiled the .md file)
