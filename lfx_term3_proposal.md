@@ -175,8 +175,6 @@ message PodLifecycleDiagnostics {
 }
 ```
 
-By restricting the Protobuf schema to `error_code` and `error_message`, the API contract remains lean. Static documentation links and remediation recommendations will be mapped client-side in the React UI (`frontend/src/lib/StatusUtils.ts`), keeping the network payload light and maintainable.
-
 Regenerate backend Go code and frontend OpenAPI clients:
 - `make -C api golang`
 - `npm run apis:all`
@@ -256,4 +254,6 @@ Perform final code cleanup, verify all lint/test checks pass, and submit upstrea
 Long-Term Impact
 
 By abstracting Kubernetes pod lifecycle failures natively inside Kubeflow Pipelines, this project eliminates major technical friction for data scientists and ML engineers. It reinforces KFP's core value proposition: providing a seamless, production-ready machine learning platform where infrastructure complexity is hidden behind intuitive visual abstractions.
+
+
 

@@ -8,7 +8,8 @@ import { generatedCjsBridge } from './vite-plugins/generated-cjs-bridge';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const proxyTarget = 'http://localhost:3001';
+const proxyTarget = process.env.KFP_API_TARGET || 'http://localhost:8888';
+const mlmdTarget = 'http://localhost:9090';
 const proxyPaths = [
   '/api',
   '/apis',
@@ -16,17 +17,27 @@ const proxyPaths = [
   '/artifacts',
   '/hub',
   '/k8s',
-  '/ml_metadata',
   '/system',
   '/visualizations',
 ];
 
-const proxy = proxyPaths.reduce<Record<string, { target: string; changeOrigin: boolean }>>(
+const proxy = proxyPaths.reduce<Record<string, { target: string; changeOrigin: boolean; headers?: Record<string, string> }>>(
   (acc, prefix) => {
-    acc[prefix] = { target: proxyTarget, changeOrigin: true };
+    acc[prefix] = {
+      target: proxyTarget,
+      changeOrigin: true,
+      headers: {
+        'kubeflow-userid': 'user@example.com',
+      },
+    };
     return acc;
   },
-  {},
+  {
+    '/ml_metadata': {
+      target: mlmdTarget,
+      changeOrigin: true,
+    },
+  },
 );
 
 export default defineConfig(({ mode }) => ({
