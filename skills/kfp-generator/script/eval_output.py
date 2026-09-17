@@ -8,13 +8,18 @@ def get_venv_python():
     """Locates the project's local virtual environment Python interpreter."""
     # Since this script runs from within the monorepo, resolve paths relative to the root
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", "..", ".."))
-   
-    venv_paths = [
-        os.path.join(repo_root, ".venv", "bin", "python"),
-        os.path.join(repo_root, ".venv", "Scripts", "python.exe"),
-        os.path.join(repo_root, "venv", "bin", "python"),
+    candidate_roots = [
+        os.path.abspath(os.path.join(script_dir, "..", "..", "..")),
+        os.path.abspath(os.path.join(script_dir, "..", "..", "..", "..")),
     ]
+   
+    venv_paths = []
+    for root in candidate_roots:
+        venv_paths.extend([
+            os.path.join(root, ".venv", "bin", "python"),
+            os.path.join(root, ".venv", "Scripts", "python.exe"),
+            os.path.join(root, "venv", "bin", "python"),
+        ])
     for path in venv_paths:
         if os.path.exists(path):
             return path

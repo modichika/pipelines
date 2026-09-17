@@ -1,0 +1,114 @@
+# PIPELINE DEFINITION
+# Name: baseline-image-anomaly-pipeline
+components:
+  comp-fetch-image-batch:
+    executorLabel: exec-fetch-image-batch
+    outputDefinitions:
+      parameters:
+        output_dir:
+          parameterType: STRING
+  comp-train-anomaly-detector:
+    executorLabel: exec-train-anomaly-detector
+    inputDefinitions:
+      parameters:
+        input_dir:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: NUMBER_DOUBLE
+deploymentSpec:
+  executors:
+    exec-fetch-image-batch:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - fetch_image_batch
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef fetch_image_batch(output_dir: dsl.OutputPath(str)):\n    import\
+          \ os\n    import numpy as np\n    from PIL import Image\n\n    os.makedirs(output_dir,\
+          \ exist_ok=True)\n    # Generate dummy image\n    img = Image.fromarray(np.uint8(np.random.rand(100,\
+          \ 100, 3) * 255))\n    img.save(os.path.join(output_dir, 'sample.png'))\n\
+          \n"
+        image: python:3.11
+    exec-train-anomaly-detector:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_anomaly_detector
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_anomaly_detector(input_dir: dsl.InputPath(str)) -> float:\n\
+          \    # Bug: Missing packages_to_install=['scikit-learn']\n    from sklearn.ensemble\
+          \ import IsolationForest\n    import numpy as np\n    import os\n\n    clf\
+          \ = IsolationForest()\n    # Dummy fit\n    clf.fit(np.random.randn(10,\
+          \ 5))\n    return 0.95\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: baseline-image-anomaly-pipeline
+root:
+  dag:
+    tasks:
+      fetch-image-batch:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-fetch-image-batch
+        taskInfo:
+          name: fetch-image-batch
+      train-anomaly-detector:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-anomaly-detector
+        dependentTasks:
+        - fetch-image-batch
+        inputs:
+          parameters:
+            input_dir:
+              taskOutputParameter:
+                outputParameterKey: output_dir
+                producerTask: fetch-image-batch
+        taskInfo:
+          name: train-anomaly-detector
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.15.2

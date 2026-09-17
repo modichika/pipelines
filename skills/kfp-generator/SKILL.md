@@ -135,7 +135,7 @@ After generating a `.py` pipeline, run the skill evaluation script to validate c
 
 ### 1. Static Compilation Verification
 ```bash
-python skills/kfp-generator/scripts/eval_output.py path/to/pipeline.py
+python skills/kfp-generator/script/eval_output.py path/to/pipeline.py
 ```
 
 The script:
@@ -148,7 +148,7 @@ The script:
 When a live KFP backend cluster is running (e.g., via `make -C backend kind-cluster-agnostic`), execute the pipeline on the real backend to capture evidence of success:
 
 ```bash
-python skills/kfp-generator/scripts/eval_output.py path/to/pipeline.py --run --host http://localhost:8080
+python skills/kfp-generator/script/eval_output.py path/to/pipeline.py --run --host http://localhost:8080
 ```
 
 The `--run` step:
@@ -157,6 +157,17 @@ The `--run` step:
 - Captures final status evidence using `client.get_run(run_id)` to verify that the run state transitioned to `SUCCEEDED`.
 
 If validation fails, read the traceback, fix the generated pipeline, and re-run until it passes.
+
+### 3. Comparative Before/After Benchmarking
+To run comparative benchmarks comparing unassisted raw LLM baselines against skill-generated pipelines:
+
+```bash
+# Static compilation benchmark across all suites:
+python skills/kfp-generator/script/run_benchmark.py --save-report skills/kfp-generator/BENCHMARK_REPORT.md
+
+# Live cluster backend execution benchmark:
+python skills/kfp-generator/script/run_benchmark.py --run-cluster --host http://localhost:8080
+```
 
 For SDK changes (not typical pipeline generation), run targeted tests:
 

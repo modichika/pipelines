@@ -95,7 +95,7 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
           \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
           \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
@@ -138,7 +138,7 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
           \ 'scikit-learn'  &&  python3 -m pip install --quiet --no-warn-script-location\
-          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
           3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
@@ -193,7 +193,7 @@ deploymentSpec:
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
           \ 'scikit-learn' 'xgboost' 'joblib'  &&  python3 -m pip install --quiet\
-          \ --no-warn-script-location 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
           \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
@@ -302,4 +302,4 @@ root:
         isOptional: true
         parameterType: NUMBER_INTEGER
 schemaVersion: 2.1.0
-sdkVersion: kfp-2.17.0
+sdkVersion: kfp-2.15.2

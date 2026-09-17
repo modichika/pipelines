@@ -1,0 +1,122 @@
+# PIPELINE DEFINITION
+# Name: baseline-churn-pipeline
+components:
+  comp-load-churn-data:
+    executorLabel: exec-load-churn-data
+    inputDefinitions:
+      parameters:
+        num_samples:
+          defaultValue: 500.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        dataset_output:
+          parameterType: STRING
+  comp-train-xgboost:
+    executorLabel: exec-train-xgboost
+    inputDefinitions:
+      parameters:
+        dataset_input:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        model_output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-load-churn-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - load_churn_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef load_churn_data(dataset_output: dsl.OutputPath(str), num_samples:\
+          \ int = 500):\n    import pandas as pd\n    import numpy as np\n\n    np.random.seed(42)\n\
+          \    df = pd.DataFrame({\n        'feature1': np.random.randn(num_samples),\n\
+          \        'feature2': np.random.randn(num_samples),\n        'churn': np.random.randint(0,\
+          \ 2, size=num_samples)\n    })\n    # Bug: Forgot os.makedirs for parent\
+          \ directory in nested artifact paths\n    df.to_csv(dataset_output, index=False)\n\
+          \n"
+        image: python:3.11
+    exec-train-xgboost:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_xgboost
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_xgboost(dataset_input: dsl.InputPath(str), model_output:\
+          \ dsl.OutputPath(str)):\n    import pandas as pd\n    import xgboost as\
+          \ xgb\n\n    df = pd.read_csv(dataset_input)\n    X = df[['feature1', 'feature2']]\n\
+          \    y = df['churn']\n    model = xgb.XGBClassifier(n_estimators=10)\n \
+          \   model.fit(X, y)\n    model.save_model(model_output)\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: baseline-churn-pipeline
+root:
+  dag:
+    tasks:
+      load-churn-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-load-churn-data
+        taskInfo:
+          name: load-churn-data
+      train-xgboost:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-xgboost
+        dependentTasks:
+        - load-churn-data
+        inputs:
+          parameters:
+            dataset_input:
+              taskOutputParameter:
+                outputParameterKey: dataset_output
+                producerTask: load-churn-data
+        taskInfo:
+          name: train-xgboost
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.15.2

@@ -1,0 +1,120 @@
+# PIPELINE DEFINITION
+# Name: baseline-time-series-pipeline
+components:
+  comp-extract-telemetry:
+    executorLabel: exec-extract-telemetry
+    outputDefinitions:
+      parameters:
+        data_path:
+          parameterType: STRING
+  comp-train-and-eval:
+    executorLabel: exec-train-and-eval
+    inputDefinitions:
+      parameters:
+        data_path:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-extract-telemetry:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - extract_telemetry
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy' 'pandas'\
+          \ 'scikit-learn'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef extract_telemetry(data_path: dsl.OutputPath(str)):\n    import\
+          \ numpy as np\n    import pandas as pd\n\n    data = np.random.randn(100,\
+          \ 5)\n    df = pd.DataFrame(data, columns=[f'f{i}' for i in range(5)])\n\
+          \    df.to_csv(data_path, index=False)\n\n"
+        image: python:3.11
+    exec-train-and-eval:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_and_eval
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'scikit-learn'\
+          \ 'numpy'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_and_eval(data_path: dsl.InputPath(str), metrics: dsl.Output[dsl.Metrics]):\n\
+          \    import numpy as np\n    import pandas as pd\n    from sklearn.linear_model\
+          \ import Ridge\n\n    df = pd.read_csv(data_path)\n    X = df.iloc[:, :-1]\n\
+          \    y = df.iloc[:, -1]\n    model = Ridge().fit(X, y)\n\n    # Bug: Passing\
+          \ numpy.float64 directly into log_metric instead of native python float,\n\
+          \    # or failing proto serialization\n    mae = np.mean(np.abs(model.predict(X)\
+          \ - y))\n    # Native KFP v2 requires float(mae), raw LLMs often pass raw\
+          \ np.float64 or dict\n    metrics.log_metric('mae', mae)\n\n"
+        image: python:3.11
+pipelineInfo:
+  name: baseline-time-series-pipeline
+root:
+  dag:
+    tasks:
+      extract-telemetry:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-extract-telemetry
+        taskInfo:
+          name: extract-telemetry
+      train-and-eval:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-and-eval
+        dependentTasks:
+        - extract-telemetry
+        inputs:
+          parameters:
+            data_path:
+              taskOutputParameter:
+                outputParameterKey: data_path
+                producerTask: extract-telemetry
+        taskInfo:
+          name: train-and-eval
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.15.2
