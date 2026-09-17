@@ -60,6 +60,20 @@ function getConfiguredServerNamespace(): string | undefined {
   return serverNamespace || process.env.FRONTEND_SERVER_NAMESPACE?.trim() || undefined;
 }
 
+/**
+ * Returns the namespace the frontend server itself runs in (read from the
+ * mounted service account when in-cluster, or from FRONTEND_SERVER_NAMESPACE
+ * otherwise).
+ *
+ * Security: This is the only namespace the ml-pipeline-ui service account is
+ * permitted to read Secrets from. Callers use it to ensure the UI never reads
+ * Secrets from a customer/user namespace. See:
+ * https://github.com/kubeflow/pipelines/pull/12860
+ */
+export function getServerNamespace(): string | undefined {
+  return getConfiguredServerNamespace();
+}
+
 function resolveNamespace(providedNamespace?: string): string | undefined {
   return providedNamespace || getConfiguredServerNamespace();
 }
@@ -286,6 +300,7 @@ export function getPodLogs(
 export interface K8sError {
   message: string;
   additionalInfo?: any;
+  statusCode?: number;
 }
 export async function getPod(
   podName: string,
@@ -321,9 +336,17 @@ export async function getConfigMap(
   } catch (error) {
     let userMessage = `Could not get configMap ${configMapName} in namespace ${configMapNamespace}`;
     if (!isAllowedResourceName(configMapName) || !isAllowedResourceName(configMapNamespace)) {
-      userMessage = `Invalid resource name`;
+      return [undefined, { message: 'Invalid resource name' }];
     }
-    return [undefined, { message: userMessage }];
+    const apiError = error as { body?: unknown; code?: number };
+    return [
+      undefined,
+      {
+        message: userMessage,
+        additionalInfo: apiError?.body || error,
+        statusCode: apiError?.code,
+      },
+    ];
   }
 }
 

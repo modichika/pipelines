@@ -22,6 +22,7 @@ import type * as React from 'react';
 import { CircularProgress } from '@mui/material';
 import { graphlib } from 'dagre';
 import * as JsYaml from 'js-yaml';
+import { loadYaml } from 'src/lib/YamlLoad';
 import { FeatureKey, isFeatureEnabled } from 'src/features';
 import { Apis } from 'src/lib/Apis';
 import {
@@ -32,7 +33,7 @@ import {
 import * as WorkflowUtils from 'src/lib/v2/WorkflowUtils';
 import { convertYamlToV2PipelineSpec } from 'src/lib/v2/WorkflowUtils';
 import { classes } from 'typestyle';
-import { Workflow } from 'src/third_party/mlmd/argo_template';
+import { Workflow } from 'src/third_party/argo/argo_template';
 import { ApiGetTemplateResponse, ApiPipeline, ApiPipelineVersion } from 'src/apis/pipeline';
 import {
   V2beta1ListPipelineVersionsResponse,
@@ -56,10 +57,11 @@ import { ApiJob } from 'src/apis/job';
 import { V2beta1Run } from 'src/apisv2beta1/run';
 import { V2beta1RecurringRun } from 'src/apisv2beta1/recurringrun';
 import { V2beta1Experiment } from 'src/apisv2beta1/experiment';
+import type { DagreGraph } from '../lib/GraphTypes';
 
 interface PipelineDetailsState {
-  graph: dagre.graphlib.Graph | null;
-  reducedGraph: dagre.graphlib.Graph | null;
+  graph: DagreGraph | null;
+  reducedGraph: DagreGraph | null;
   graphV2: PipelineFlowElement[] | null;
   graphIsLoading: boolean;
   v1Pipeline: ApiPipeline | null;
@@ -103,8 +105,8 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
   public getInitialToolbarState(): ToolbarProps {
     const buttons = new Buttons(this.props, this.refresh.bind(this));
     const origin = this.getOrigin();
-    const pipelineIdFromParams = this.props.match.params[RouteParams.pipelineId];
-    const pipelineVersionIdFromParams = this.props.match.params[RouteParams.pipelineVersionId];
+    const pipelineIdFromParams = this.props.params[RouteParams.pipelineId] ?? '';
+    const pipelineVersionIdFromParams = this.props.params[RouteParams.pipelineVersionId] ?? '';
 
     if (origin) {
       const getOriginIdList = () => [origin.isRecurring ? origin.recurringRunId! : origin.runId!];
@@ -133,14 +135,14 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
         .newRunFromPipelineVersion(
           () => {
             return this.state.v2Pipeline
-              ? this.state.v2Pipeline.pipeline_id
+              ? (this.state.v2Pipeline.pipeline_id ?? '')
               : pipelineIdFromParams
                 ? pipelineIdFromParams
                 : '';
           },
           () => {
             return this.state.v2SelectedVersion
-              ? this.state.v2SelectedVersion.pipeline_version_id
+              ? (this.state.v2SelectedVersion.pipeline_version_id ?? '')
               : pipelineVersionIdFromParams
                 ? pipelineVersionIdFromParams
                 : '';
@@ -167,7 +169,7 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
       return {
         actions: buttons.getToolbarActionMap(),
         breadcrumbs: [{ displayName: 'Pipelines', href: RoutePage.PIPELINES }],
-        pageTitle: this.props.match.params[RouteParams.pipelineId],
+        pageTitle: this.props.params[RouteParams.pipelineId] ?? '',
       };
     }
   }
@@ -342,7 +344,7 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
     let templateString = '';
     let breadcrumbs: Array<{ displayName: string; href: string }> = [];
     const toolbarActions = this.props.toolbarProps.actions;
-    let pageTitle = '';
+    let pageTitle: string;
 
     // If fromRunId or fromRecurringRunId is specified,
     // then load the run and get the pipeline template from it
@@ -466,8 +468,8 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
       }
     } else {
       // if fromRunId or fromRecurringRunId is not specified, then we have a full pipeline
-      const pipelineId = this.props.match.params[RouteParams.pipelineId];
-      const versionId = this.props.match.params[RouteParams.pipelineVersionId];
+      const pipelineId = this.props.params[RouteParams.pipelineId] ?? '';
+      const versionId = this.props.params[RouteParams.pipelineVersionId] ?? '';
 
       try {
         v1Pipeline = await Apis.pipelineServiceApi.getPipeline(pipelineId);
@@ -594,9 +596,12 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
       );
 
       const selectedVersionPipelineTemplate = await this._getTemplateString(v2SelectedVersion);
-      this.props.history.replace({
-        pathname: `/pipelines/details/${this.state.v2Pipeline.pipeline_id}/version/${versionId}`,
-      });
+      this.props.navigate(
+        {
+          pathname: `/pipelines/details/${this.state.v2Pipeline.pipeline_id}/version/${versionId}`,
+        },
+        { replace: true },
+      );
       this.props.updateToolbar(this.getInitialToolbarState());
       this.props.updateToolbar({ pageTitle });
 
@@ -656,7 +661,7 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
     let graphV2: PipelineFlowElement[] = [];
     if (templateString) {
       try {
-        const template = JsYaml.load(templateString);
+        const template = loadYaml(templateString);
         if (WorkflowUtils.isArgoWorkflowTemplate(template)) {
           graph = StaticGraphParser.createGraph(template!);
 
@@ -687,7 +692,7 @@ class PipelineDetails extends Page<{}, PipelineDetailsState> {
       const previousPage = breadcrumbs.length
         ? breadcrumbs[breadcrumbs.length - 1].href
         : RoutePage.PIPELINES;
-      this.props.history.push(previousPage);
+      this.props.navigate(previousPage);
     }
   }
 }

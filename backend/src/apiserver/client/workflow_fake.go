@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/argoproj/argo-workflows/v4/pkg/apis/workflow/v1alpha1"
 	"github.com/golang/glog"
@@ -32,32 +34,54 @@ import (
 )
 
 type FakeWorkflowClient struct {
-	workflows       map[string]*v1alpha1.Workflow
-	lastGeneratedId int
+	mu                  sync.RWMutex
+	workflows           map[string]*v1alpha1.Workflow
+	deleteCalls         map[string]int
+	lastGeneratedID     int
+	lastCreationID      int64
+	lastResourceVersion int64
+}
+
+type jsonPatchOperation struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value any    `json:"value,omitempty"`
 }
 
 func NewWorkflowClientFake() *FakeWorkflowClient {
 	return &FakeWorkflowClient{
 		workflows:       make(map[string]*v1alpha1.Workflow),
-		lastGeneratedId: -1,
+		deleteCalls:     make(map[string]int),
+		lastGeneratedID: -1,
 	}
 }
 
 func (c *FakeWorkflowClient) Create(ctx context.Context, execSpec util.ExecutionSpec, opts v1.CreateOptions) (util.ExecutionSpec, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	workflow, ok := execSpec.(*util.Workflow)
 	if !ok {
 		return nil, fmt.Errorf("not a valid ExecutionSpec for Workflow")
 	}
 	if workflow.GenerateName != "" {
-		c.lastGeneratedId += 1
-		workflow.Name = workflow.GenerateName + strconv.Itoa(c.lastGeneratedId)
+		c.lastGeneratedID += 1
+		workflow.Name = workflow.GenerateName + strconv.Itoa(c.lastGeneratedID)
 		workflow.GenerateName = ""
 	}
+	// Kubernetes owns UID and resourceVersion. Always replace caller-supplied
+	// values so recreation and concurrency tests cannot preserve the identity or
+	// version of a deleted object, which the real API server would never do.
+	c.lastCreationID++
+	c.lastResourceVersion++
+	workflow.UID = types.UID(fmt.Sprintf("workflow%d", c.lastCreationID))
+	workflow.ResourceVersion = strconv.FormatInt(c.lastResourceVersion, 10)
 	c.workflows[workflow.Name] = workflow.Workflow
 	return workflow, nil
 }
 
 func (c *FakeWorkflowClient) Get(ctx context.Context, name string, options v1.GetOptions) (util.ExecutionSpec, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	workflow, ok := c.workflows[name]
 	if ok {
 		return util.NewWorkflow(workflow), nil
@@ -76,6 +100,8 @@ func (c *FakeWorkflowClient) Watch(ctx context.Context, opts v1.ListOptions) (wa
 }
 
 func (c *FakeWorkflowClient) Update(ctx context.Context, execSpec util.ExecutionSpec, opts v1.UpdateOptions) (util.ExecutionSpec, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	workflow, ok := execSpec.(*util.Workflow)
 	if !ok {
 		return nil, fmt.Errorf("not a valid ExecutionSpec for Workflow")
@@ -83,14 +109,37 @@ func (c *FakeWorkflowClient) Update(ctx context.Context, execSpec util.Execution
 	name := workflow.GetObjectMeta().GetName()
 	_, ok = c.workflows[name]
 	if ok {
+		c.lastResourceVersion++
+		workflow.ResourceVersion = strconv.FormatInt(c.lastResourceVersion, 10)
+		c.workflows[name] = workflow.Workflow
 		return workflow, nil
 	}
 	return nil, k8errors.NewNotFound(k8schema.ParseGroupResource("workflows.argoproj.io"), name)
 }
 
 func (c *FakeWorkflowClient) Delete(ctx context.Context, name string, options v1.DeleteOptions) error {
-	_, ok := c.workflows[name]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	workflow, ok := c.workflows[name]
 	if ok {
+		if options.Preconditions != nil && options.Preconditions.UID != nil && workflow.UID != *options.Preconditions.UID {
+			return k8errors.NewConflict(
+				k8schema.ParseGroupResource("workflows.argoproj.io"),
+				name,
+				fmt.Errorf("workflow UID %q does not match delete precondition %q", workflow.UID, *options.Preconditions.UID),
+			)
+		}
+		if options.Preconditions != nil && options.Preconditions.ResourceVersion != nil &&
+			workflow.ResourceVersion != *options.Preconditions.ResourceVersion {
+			return k8errors.NewConflict(
+				k8schema.ParseGroupResource("workflows.argoproj.io"),
+				name,
+				fmt.Errorf("workflow resourceVersion %q does not match delete precondition %q",
+					workflow.ResourceVersion, *options.Preconditions.ResourceVersion),
+			)
+		}
+		c.deleteCalls[name]++
+		delete(c.workflows, name)
 		return nil
 	}
 	return k8errors.NewNotFound(k8schema.ParseGroupResource("workflows.argoproj.io"), name)
@@ -106,9 +155,20 @@ func (c *FakeWorkflowClient) DeleteCollection(ctx context.Context, options v1.De
 func (c *FakeWorkflowClient) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions,
 	subresources ...string,
 ) (util.ExecutionSpec, error) {
-	_, ok := c.workflows[name]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	workflow, ok := c.workflows[name]
 	if !ok {
 		return nil, k8errors.NewNotFound(k8schema.ParseGroupResource("workflows.argoproj.io"), name)
+	}
+
+	if pt == types.JSONPatchType {
+		patchedWorkflow, err := applyJSONPatchToFakeWorkflow(workflow, name, data)
+		if err == nil {
+			c.lastResourceVersion++
+			workflow.ResourceVersion = strconv.FormatInt(c.lastResourceVersion, 10)
+		}
+		return patchedWorkflow, err
 	}
 
 	var dat map[string]interface{}
@@ -126,6 +186,8 @@ func (c *FakeWorkflowClient) Patch(ctx context.Context, name string, pt types.Pa
 			if ok {
 				newActiveDeadlineSeconds := int64(0)
 				workflow.Spec.ActiveDeadlineSeconds = &newActiveDeadlineSeconds
+				c.lastResourceVersion++
+				workflow.ResourceVersion = strconv.FormatInt(c.lastResourceVersion, 10)
 				return util.NewWorkflow(workflow), nil
 			}
 		}
@@ -138,21 +200,68 @@ func (c *FakeWorkflowClient) Patch(ctx context.Context, name string, pt types.Pa
 				workflow.Labels = map[string]string{}
 			}
 			workflow.Labels[util.LabelKeyWorkflowPersistedFinalState] = "true"
+			c.lastResourceVersion++
+			workflow.ResourceVersion = strconv.FormatInt(c.lastResourceVersion, 10)
 			return util.NewWorkflow(workflow), nil
 		}
 	}
 	return nil, errors.New("Failed to patch workflow")
 }
 
+func applyJSONPatchToFakeWorkflow(workflow *v1alpha1.Workflow, name string, data []byte) (util.ExecutionSpec, error) {
+	var patchOperations []jsonPatchOperation
+	if err := json.Unmarshal(data, &patchOperations); err != nil {
+		return nil, err
+	}
+
+	for _, patchOperation := range patchOperations {
+		switch patchOperation.Op {
+		case "test":
+			actualValue, ok := fakeWorkflowJSONPatchValue(workflow, patchOperation.Path)
+			if !ok || actualValue != fmt.Sprint(patchOperation.Value) {
+				return nil, k8errors.NewConflict(k8schema.ParseGroupResource("workflows.argoproj.io"), name, fmt.Errorf("json patch test failed for %s", patchOperation.Path))
+			}
+		case "add":
+			if !strings.HasPrefix(patchOperation.Path, "/metadata/labels/") {
+				return nil, fmt.Errorf("unsupported fake JSON patch add path %q", patchOperation.Path)
+			}
+			labelKey := unescapeJSONPointerPathPart(strings.TrimPrefix(patchOperation.Path, "/metadata/labels/"))
+			if workflow.Labels == nil {
+				workflow.Labels = map[string]string{}
+			}
+			workflow.Labels[labelKey] = fmt.Sprint(patchOperation.Value)
+		default:
+			return nil, fmt.Errorf("unsupported fake JSON patch operation %q", patchOperation.Op)
+		}
+	}
+
+	return util.NewWorkflow(workflow), nil
+}
+
+func fakeWorkflowJSONPatchValue(workflow *v1alpha1.Workflow, path string) (string, bool) {
+	switch path {
+	case "/metadata/resourceVersion":
+		return workflow.ResourceVersion, true
+	case "/status/phase":
+		return string(workflow.Status.Phase), true
+	default:
+		return "", false
+	}
+}
+
+func unescapeJSONPointerPathPart(pathPart string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(pathPart, "~1", "/"), "~0", "~")
+}
+
 type FakeBadWorkflowClient struct {
 	FakeWorkflowClient
 }
 
-func (FakeBadWorkflowClient) Create(context.Context, util.ExecutionSpec, v1.CreateOptions) (util.ExecutionSpec, error) {
+func (*FakeBadWorkflowClient) Create(context.Context, util.ExecutionSpec, v1.CreateOptions) (util.ExecutionSpec, error) {
 	return nil, errors.New("some error")
 }
 
-func (FakeBadWorkflowClient) Get(ctx context.Context, name string, options v1.GetOptions) (util.ExecutionSpec, error) {
+func (*FakeBadWorkflowClient) Get(ctx context.Context, name string, options v1.GetOptions) (util.ExecutionSpec, error) {
 	return nil, errors.New("some error")
 }
 

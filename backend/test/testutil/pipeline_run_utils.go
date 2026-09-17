@@ -78,9 +78,22 @@ func TerminatePipelineRun(client *api_server.RunClient, runID string) {
 
 func GetPipelineRun(runClient *api_server.RunClient, pipelineRunID *string) *run_model.V2beta1Run {
 	logger.Log("Get a pipeline run with id=%s", *pipelineRunID)
-	pipelineRun, runError := runClient.Get(&run_params.RunServiceGetRunParams{
-		RunID: *pipelineRunID,
-	})
+	var (
+		pipelineRun *run_model.V2beta1Run
+		runError    error
+	)
+	for attempt := 1; attempt <= 3; attempt++ {
+		pipelineRun, runError = runClient.Get(&run_params.RunServiceGetRunParams{
+			RunID: *pipelineRunID,
+			View:  strPTR("FULL"),
+		})
+		if runError == nil {
+			break
+		}
+		if !IsRetriableLocalAPIError(runError) || attempt == 3 {
+			gomega.Expect(runError).NotTo(gomega.HaveOccurred())
+		}
+	}
 	gomega.Expect(runError).NotTo(gomega.HaveOccurred(), "Failed to get run with id="+*pipelineRunID)
 	return pipelineRun
 }
@@ -154,4 +167,8 @@ func GetPipelineRunTimeInputs(pipelineSpecFile string) map[string]interface{} {
 	}
 	logger.Log("Returning pipeline run time inputs %v", pipelineInputMap)
 	return pipelineInputMap
+}
+
+func strPTR(s string) *string {
+	return &s
 }
